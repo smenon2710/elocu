@@ -1,0 +1,39 @@
+"use client";
+
+import type { CategoryAverage } from "@/lib/progress";
+
+/**
+ * One measure (an average score) across named categories — a single
+ * consistent hue for every bar, not one color per category, since there's no
+ * identity to distinguish here (see dataviz skill: color follows the job it
+ * does, and a magnitude-only comparison needs none). Matches the app's
+ * existing score color (blue-600) rather than a separate chart palette.
+ */
+export function CategoryBarChart({ data, max = 5 }: { data: CategoryAverage[]; max?: number }) {
+  if (data.length === 0) return null;
+
+  return (
+    <div className="space-y-3">
+      {data.map((d) => (
+        <div key={d.key} className="group flex items-center gap-3">
+          <span className="w-28 shrink-0 truncate text-sm text-gray-600">{d.label}</span>
+          <div className="relative h-3 flex-1 rounded-full bg-gray-100">
+            <div
+              className="absolute inset-y-0 left-0 rounded-full bg-blue-600"
+              style={{ width: `${Math.max((d.average / max) * 100, 4)}%` }}
+            />
+          </div>
+          <span
+            className="w-10 shrink-0 text-right text-sm font-medium text-gray-900"
+            style={{ fontVariantNumeric: "tabular-nums" }}
+          >
+            {d.average.toFixed(1)}
+          </span>
+          <span className="w-16 shrink-0 text-xs text-gray-400 opacity-0 transition-opacity group-hover:opacity-100">
+            {d.count} sess.
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}

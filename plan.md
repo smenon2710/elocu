@@ -1,0 +1,404 @@
+# Elocu — Phase 1 Plan
+
+*Working title. From "elocution" — the art of clear, expressive speech. Not yet cleared for trademark/domain — see note at bottom of this section.*
+
+## Vision & mission
+
+**Help anyone express themselves with clarity, confidence, and genuine connection — through storytelling, conversation, debate, speeches, and oratory.**
+
+The inspiration is Plato's *Republic* — the idea that human beings sharpen their thinking and improve as a society through dialogue and argument. Reasoning tested out loud, against another mind, is what refines it. That's the deeper bet behind this app: it isn't just an interview-prep tool, it's practice ground for the full range of skills that let a person think and connect out loud — telling a story, holding a conversation, making a speech, and *arguing a position well*.
+
+Debate is a first-class use case, not a side mode. It draws on the same core skills as storytelling and interviewing — structure, clarity, delivery, emotional tone, audience awareness — but adds argumentation-specific skills the app should eventually coach on: building a claim with evidence, anticipating and addressing counterarguments, staying composed and persuasive under pushback, and listening well enough to respond to what was actually said rather than a straw man.
+
+Implications for how the app is built:
+
+- **The rubric is a general communication rubric, not an interview rubric.** Structure, delivery, specificity, engagement are the shared spine across storytelling, interviews, speeches, one-on-one conversation, and debate. Each use case is a *context layer* on top of the same core engine (see the two-layer feedback design below) — not a separate product.
+- **"Genuine expression" over generic polish.** The goal is to sharpen someone's own voice and reasoning, not to coach them toward a templated "correct" answer — even in debate, where the aim is a sharper, more honest argument, not just a more aggressive one.
+- **Confidence and low-stakes reps matter as much as scoring.** A judgment-free space to practice arguing, speaking, and conversing is itself the product, not just a means to a score.
+- **Interview prep is the flagship doorway, not the ceiling.** The rubric, persona system, and grading engine should be built generically from day one so speeches, toasts, pitches, everyday conversation, and debate practice can be added later without rework — even though Phase 1 ships interview prep first.
+- **The conversation is the practice, not a means to collect data for scoring.** People get better at conversing by conversing — not by reading tips or answering quizzes. The live back-and-forth with the AI must feel like a real, responsive conversation (follow-ups, reactions, occasional pushback) in its own right. Grading exists to make each conversation teach the user something for the next one — it is in service of the conversation, never the other way around. If a design choice would make the conversation feel more like a form to fill out in order to generate a score, it's the wrong choice.
+
+**Note on the name:** "Elocu" cleared an initial web check with no obvious collisions, unlike an earlier candidate ("Agora," which is heavily used in software/communication, including a well-known real-time voice/video API company). Before locking it in, run a proper USPTO trademark search and check domain/app-store availability directly — a web search isn't a substitute for that.
+
+---
+
+## Scope decision
+
+**In scope for Phase 1:** zero-friction conversation, document upload as an optional enhancement, per-session feedback broken into sections.
+
+**Explicitly deferred:** video monitoring, live in-session coaching nudges, longitudinal analytics dashboard, monetization, story library.
+
+**Pulled forward from deferred:** multiple interviewer personas — now shipped as an explicit mode system (see §8) rather than staying implicit in whether documents were uploaded.
+
+Rationale: everything deferred is a layer on top of the conversation + grading engine. Nothing about them changes the core data model if we design the session and feedback schema properly now (see "Data model" below) — so deferring them costs nothing later.
+
+---
+
+## 1. User flow
+
+1. **Open app** — no setup screen. Prompt: *"What do you want to talk about?"* with 3–4 starter suggestions (e.g. "Tell me about a time you solved a hard problem," "Pitch me an idea you're excited about").
+2. **Optional enhancement** — a visible but non-blocking option to upload a resume, job description, or question list. Can be done before starting or offered mid-conversation ("Want to upload a JD so I can tailor this?").
+3. **Conversation** — voice-based back-and-forth. The AI asks questions, follows up, and responds like an attentive listener/interviewer, not a form.
+4. **Session ends** — user ends the conversation manually, or after a set number of exchanges.
+5. **Feedback screen** — per-section scores + specific examples + one concrete fix per section (detailed below).
+6. **(Later)** — user can start a new session anytime; trend view arrives in a future phase.
+
+---
+
+## 2. Two-layer feedback design
+
+This is the part that makes "no documents needed" actually work end-to-end.
+
+- **General layer (always active)** — storytelling structure, delivery, clarity, engagement. Runs on any conversation, regardless of whether documents were uploaded.
+- **Context layer (active only if documents were provided)** — relevance to a specific job description, alignment with resume claims, coverage of a specific question bank.
+
+The interviewer persona itself is generated the same way: no docs → "curious, attentive conversation partner" system prompt; docs present → role/company-flavored interviewer system prompt built from the uploaded context. Same engine, different prompt inputs.
+
+---
+
+## 3. Feedback sections (per-session)
+
+Each section gets its own score, at least one quoted/timestamped moment from the transcript, and one concrete, specific fix (not generic advice).
+
+| Section | What it measures |
+|---|---|
+| **Delivery** | Pace/rhythm, filler words & hedging language, use of pauses (dead air vs. intentional) |
+| **Structure** | Clear shape to the answer (setup → tension → resolution), strong opening line vs. throat-clearing, landing on a clear takeaway |
+| **Content** | Specificity vs. vague generality, relevance to the question asked, conciseness |
+| **Engagement** | Hook strength of the opening, emotional variation vs. flatness, awareness of the listener/context |
+| **Context fit** *(only if docs uploaded)* | Alignment with JD/resume, coverage of the provided question bank |
+| **Argumentation** *(Debate mode only)* | Building a claim with real evidence/reasoning, addressing the opponent's actual counterarguments (not a strawman), staying composed and persuasive under pushback |
+
+Example fix format: not *"be more concise"* — instead *"cut the first two sentences and start directly with the moment the deadline moved up."*
+
+---
+
+## 4. System architecture (Phase 1 only)
+
+```
+Prep documents (optional)
+        │
+        ▼
+Context builder → interviewer persona + question set (or generic persona if no docs)
+        │
+        ▼
+Live conversation loop: Speech-to-text → LLM interviewer → Text-to-speech
+        │
+        ▼
+Transcript (text + audio, timestamped, stored per session)
+        │
+        ▼
+Grading pass — separate LLM call, rubric-driven, structured JSON output
+        │
+        ▼
+Per-session feedback screen
+```
+
+Key principle: **grading is decoupled from the live loop.** The conversation stays fast; grading can afford to take longer and be more thorough, since it runs after the session ends.
+
+---
+
+## 5. Data model (design now, even though later features are deferred)
+
+Design the session/feedback schema so nothing needs restructuring when the dashboard, video, or other features arrive later.
+
+- `session`: id, user_id, timestamp, mode (interview / conversation / speech / orator / debate — an explicit user choice, decoupled from whether documents were uploaded), documents_used (bool + refs), transcript_ref
+- `transcript`: turns with speaker, text, audio_ref, start/end timestamps
+- `feedback`: session_id, per-section scores (structure/delivery/content/engagement/context_fit), quoted moments per section, fix suggestion per section
+- Keep scores **numeric + per-category** from day one (not a single blended score) — this is what makes a future trend dashboard a pure query over existing data rather than a schema change.
+
+---
+
+## 6. Build order
+
+1. **Text-only conversation engine** — get the interviewer persona and follow-up logic right before adding voice. This is where most of the design difficulty lives.
+2. **Add voice** — STT in, TTS out, around the same loop. New problems here are latency and turn-taking, not conversation quality.
+3. **Grading pass** — build against real transcripts from step 2, structured JSON output per the sections above.
+4. **Feedback screen** — turn the grading JSON into the per-section UI.
+5. **Optional document upload** — layered in once the general (no-doc) path already works end-to-end.
+
+---
+
+## 7. Open questions to resolve before/while building
+
+- Does the interviewer track lightweight session state (e.g. "already covered: teamwork — still need: weakness question"), or just react to the running transcript?
+- Exact rubric definitions and score ranges per section (e.g. 1–5, or qualitative bands) — needs its own pass once this plan is approved.
+- How many exchanges constitute a "session" by default, and how the user ends one.
+
+---
+
+## 8. Mode system (post-Phase-1 addition)
+
+Real use surfaced that "interview vs. free-talk, driven by whether docs were uploaded" wasn't enough
+— the user wanted explicit modes for the other use cases §"Vision & mission" already named as
+first-class. Same engine per mode (persona + rubric), per the two-layer design in §2 — only the
+system prompt and the exchange cap change per mode:
+
+| Mode | Shape | Exchange cap |
+|---|---|---|
+| **Interview** | Back-and-forth Q&A; tailors to a role if docs are uploaded, generic professional questions otherwise | 12 |
+| **Conversation** | Casual peer-to-peer chat, no interviewer framing — the original zero-friction default | 12 |
+| **Debate** | User states a position; the AI actively argues the *opposing* side with real counterarguments, not a strawman | 12 |
+| **Speech** | User delivers a prepared talk (toast, pitch, remarks); AI stays silent through the whole delivery, then gives one brief reaction | 1 |
+| **Orator** | Impromptu persuasive speaking; if no topic is given, the AI invents a concrete, debatable one in its opening line; same silent-listener shape as Speech | 1 |
+
+Documents (resume/JD/question list) remain an optional layer on top of any mode — most naturally
+Interview — rather than being what determines the mode.
+
+Debate mode adds a 6th rubric section, **Argumentation** (see §3), scored alongside the general four.
+
+---
+
+## 9. STT interaction model
+
+Real testing surfaced a concrete bug: the original implementation used `SpeechRecognition.continuous
+= false`, which ends the recognizer as soon as the browser detects *any* pause — including someone
+just pausing to think — and sends that partial transcript as if it were the whole answer. This felt
+like being cut off mid-conversation, and would have been worse for Speech/Orator modes where someone
+needs to talk for a while uninterrupted.
+
+Fixed by moving to a **push-to-talk-until-you're-done** model, used uniformly across every mode:
+the mic stays open (continuous + interim results shown live) across pauses, and only the user
+tapping the mic again signals "I'm done" and submits the turn. If the browser's recognizer ends on
+its own before that (a silence timeout, or an internal cap on long sessions), a fresh instance
+starts transparently underneath, carrying the accumulated transcript forward — the user never
+notices the handoff. For Speech/Orator, this pairs with the AI staying fully silent through the
+whole delivery (see §8), so a monologue is never interrupted from either side.
+
+---
+
+## 10. Resuming an in-progress session
+
+Documents (resume/JD/question list) and the running transcript already lived entirely inside the
+session's persisted file — the only missing piece was a way back to it. The home page now lists
+unfinished sessions ("Continue where you left off": mode, topic, turn count, how long ago) with a
+link straight into `/session/[id]`, which re-hydrates the full transcript and picks the conversation
+back up — no re-uploading documents, no re-explaining context. A "Discard" action removes a session
+from the list entirely if it's not worth returning to.
+
+One edge case this surfaced: if a session was interrupted right after the user's turn was saved but
+*before* the AI replied (an LLM call failing mid-flight), resuming would otherwise leave the user
+stuck with no response and no mic prompt. A small retry step fetches that missing reply
+automatically on resume, rather than requiring the user to repeat themselves.
+
+---
+
+## 11. Pause vs. End
+
+Motivated directly by free-tier OpenRouter unreliability (see the timeout/empty-transcript bugs
+below) — a user shouldn't have to choose between losing a conversation entirely and getting no
+feedback at all just because a model call was slow or flaky. **Pause** (`/api/sessions/[id]/pause`)
+grades the transcript as it stands *without* setting `endedAt`, so the session stays fully
+resumable — more turns can still be posted, and pausing again later regrades against whatever's
+been added since (no stale cached feedback). **End** is unchanged: permanent, idempotent, the
+session is done. The feedback page and sidebar both reflect this — a paused session shows "paused"
+with a "view feedback" shortcut and a "Resume this session" link, rather than looking finished.
+
+Also fixed while investigating a real report of this: `lib/fetchWithTimeout.ts` only guarded until
+response *headers* arrived, not the full body — free models routed through `openrouter/free` were
+observed taking 25-60s to stream a response, sailing straight past the intended 20s cutoff
+unaborted. Reproduced directly against a mock slow-body server and fixed by keeping the abort timer
+armed through body-reading too; default timeout raised to 45s now that it's genuinely enforced.
+Also: ending/pausing a session with zero user turns now skips the grading call entirely
+(`emptyTranscriptFeedback`) instead of silently producing meaningless "grading unavailable"
+placeholder scores.
+
+---
+
+## 12. Per-use-case model selection
+
+`openrouter/free` (an auto-router across whatever free capacity is available) turned out to be the
+real root cause of the original timeout issue — it routed across a wide, unpredictable pool of
+different underlying free models call to call, some taking under 5s and some 50s+. Pinning specific
+models per call site helped, but real logged usage kept surfacing the same underlying problem:
+free-tier capacity for larger/"reasoning" models is heavily bottlenecked regardless of which one is
+picked (`nvidia/nemotron-3-ultra-550b-a55b`, then `openai/gpt-oss-20b`, both repeatedly timed out at
+45s specifically on grading). `google/gemma-4-26b-a4b-it:free` was the one model that stayed fast
+and reliable across every logged call on OpenRouter's free tier — see §13 for how this got resolved
+properly with a paid, dedicated-hardware provider instead of continuing to chase free-tier models.
+
+---
+
+## 13. Groq as primary provider, OpenRouter as fallback
+
+`lib/openrouter.ts` generalized into `lib/llm.ts`, which supports multiple providers behind one
+`chatCompletion()` call — both Groq and OpenRouter are OpenAI-compatible chat-completion APIs (same
+request/response shape, different host/key), so one fetch implementation covers both. Each call site
+(`lib/conversation.ts`, `lib/grading.ts`) now passes a `primary` and `fallback` `ModelChoice`; if
+primary fails for *any* reason (missing key, timeout, bad response), `chatCompletion` transparently
+retries once against fallback before giving up — so one provider having a bad moment doesn't take
+the app down with it.
+
+**Groq is primary for both use cases** — its whole value proposition is speed via custom inference
+hardware, and that matters for both: the live conversation loop is obviously latency-sensitive, but
+grading is too, since the browser waits on the `/end` or `/pause` fetch before showing feedback (the
+45s free-tier grading timeouts above were just as user-facing as a slow conversation reply).
+OpenRouter/Gemma is the fallback — proven fast+reliable on the free tier, kept as the safety net.
+
+- **Conversation** (`llama-3.1-8b-instant` on Groq) — observed ~475ms per call, down from
+  seconds-to-tens-of-seconds on OpenRouter's free tier.
+- **Grading** (`openai/gpt-oss-20b` on Groq — same model that kept timing out on OpenRouter's free
+  tier, now fast because it's on dedicated hardware) — observed ~2.6s per call, down from 30-45s+
+  with frequent timeouts.
+
+**A real grading-quality bug this surfaced**: despite the prompt explicitly saying "only quote a
+USER turn," a grading response quoted the AI's own argument verbatim and attributed it to the user
+in a debate session — confirmed by checking the actual transcript. This is a model instruction-
+following slip, not specific to Groq or gpt-oss-20b, and could happen with any model. Added
+`validateQuotedMoment()` in `lib/grading.ts`: verifies the claimed turn index exists, is actually a
+user turn, and the quoted text actually appears there — strips just the quote on failure (keeps the
+score/fix, which are usually still reasonable) rather than discarding the whole section or trusting
+an LLM's unverified claim about its own output.
+
+Model overrides: `GROQ_MODEL_CONVERSATION` / `GROQ_MODEL_GRADING` for the primary tier,
+`OPENROUTER_MODEL_CONVERSATION` / `OPENROUTER_MODEL_GRADING` for the fallback tier.
+
+---
+
+## 14. Cross-provider call tracing
+
+Every local log line (`data/logs/llm-YYYY-MM-DD.jsonl`) now also captures `providerRequestId` — the
+provider's own id for that exact call — so a specific call can be traced from the local log into
+that provider's own system, not just correlated by rough timestamp:
+
+- **OpenRouter**: the id is a real generation id, verified end-to-end by querying
+  `GET /api/v1/generation?id=<id>` with a captured id and confirming it resolves to that exact
+  call's full stats (model, latency, tokens, cost, upstream provider). Also added the `HTTP-Referer`
+  / `X-Title` headers OpenRouter documents for app attribution, and confirmed via that same lookup
+  that `origin` correctly shows as this app rather than an anonymous caller.
+- **Groq**: the id is captured the same way, but confirmed (by checking Groq's own API reference)
+  that there's no equivalent lookup-by-id endpoint — Groq's request history is console-UI-only.
+  The captured id is still logged for reference (e.g. if ever contacting Groq support about a
+  specific failed call).
+- **Both providers**: requests now also send `user: sessionId` — both document this as an
+  end-user-identifier field for abuse detection; verified via the OpenRouter lookup that it shows up
+  as `external_user` against the exact session that triggered the call, making their side
+  filterable per session too, not just per API key.
+
+---
+
+## 15. Third-tier local fallback (Ollama)
+
+`chatCompletion`'s `fallback?: ModelChoice` generalized to `fallbacks?: ModelChoice[]` — a chain
+tried in order, stopping at the first success — to add a local Ollama tier below Groq and
+OpenRouter. Benchmarked every locally-installed model against a realistic persona prompt and a
+grading-style structured-JSON prompt before picking one:
+
+| Model | Conversation | Grading | Verdict |
+|---|---|---|---|
+| **llama3.2** (3.2B) | 1.1s | 5.2s, valid JSON | Kept — only one fast enough to be worth it |
+| mistral (7.2B) | 2.8s | 14.1s | Too slow; also broke 2 explicit persona rules (summarized the topic back, asked two questions in one turn) |
+| qwen3:8b (8.2B) | 6s+ (trivial prompt alone) | — | Disqualified — "thinking" model, reasoning overhead before every answer |
+| deepseek-r1 (7.6B) | 126.7s | — | Disqualified — same reasoning overhead, worse; produced a meta-response ("Here's how you can begin: 1. Greet the Person...") instead of actually playing the persona |
+
+`llama3.2` is the one wired in (`OLLAMA_MODEL_CONVERSATION` / `OLLAMA_MODEL_GRADING`, no API key
+needed — Ollama has no auth by default). Verified the full 3-tier chain live by forcing both Groq
+and OpenRouter to fail (bad model names) and confirming it fell through to Ollama and completed the
+session normally; also confirmed Groq still succeeds directly in the normal case, unaffected by the
+extra tier. `validateQuotedMoment()` (added in §13) covers this model's grading output too, same as
+any other.
+
+---
+
+## 16. Grading-failure diagnosability + switching off gpt-oss-20b
+
+A real "grading didn't work" report couldn't be root-caused: the LLM call itself had succeeded
+(logged `ok: true`), but the actual response content was never captured anywhere, so there was no
+way to see *why* parsing/validation failed afterward. Added `logParseFailure()` in
+`lib/grading.ts` — writes the raw response plus the specific failure reason (invalid JSON vs.
+missing/wrong-typed section) to `data/logs/grading-failures-YYYY-MM-DD.jsonl` whenever this
+happens, so it's diagnosable going forward.
+
+Reproduced the original failure live within minutes of adding the logging: `openai/gpt-oss-20b`
+(on Groq) generated syntactically malformed JSON — missing the comma between sibling section keys
+(`"structure":{...},{"delivery":{...}` instead of `"structure":{...},"delivery":{...}`). This was
+the **second** confirmed occurrence of this exact model doing this exact thing (the first was on
+OpenRouter's free tier, back in §12) — despite Groq listing "structured_outputs" support for it.
+Two independent occurrences of the same failure mode is a pattern, not noise, so `GRADING_PRIMARY`
+switched from `openai/gpt-oss-20b` to `llama-3.1-8b-instant` (same model already used for
+conversation, reliable in every observed case across both providers). Verified live: grading
+succeeded in 955ms with a correctly-quoted section, no parse failures logged.
+
+---
+
+## 17. In-app call log
+
+All of this had been terminal-only up to now — no way to see which model actually handled a
+session without grepping `data/logs/` by hand. Added `/session/[id]/logs`, linked from the
+feedback page: reads back every logged call for that session (`getSessionCallLogs()` in
+`lib/llm.ts`, scanning across all daily log files since a resumed session can span days) grouped
+by conversation vs. grading, each showing provider/model/duration/status, plus any grading parse
+failures (`getSessionParseFailures()` in `lib/grading.ts`) with the raw malformed response
+available to expand.
+
+One honest scope note included directly in the page: speech capture (Web Speech API) runs entirely
+client-side and never hits the server, so there's nothing to log distinguishing voice vs. typed
+input per turn — the page says so rather than fabricating that detail.
+
+Verified against a real session with a real history: exactly 8 conversation calls and exactly 2
+grading calls (the original failed `gpt-oss-20b` attempt from §16, plus the successful
+`llama-3.1-8b-instant` retry) rendered correctly, cross-checked against the raw log data.
+
+---
+
+## 18. Landing page + route split
+
+`/` was the mode-selector "start a session" screen from day one — fine while the app had no public
+face, but it meant there was no room for an actual pitch, and no natural place to eventually gate
+by subscription. Split into two surfaces using a Next.js route group:
+
+- **`/`** — a new marketing landing page, no app chrome (no Header/Sidebar). Signature element is
+  an animated hero transcript (a debate exchange, lines revealing in sequence like a live
+  transcript) — the most characteristic thing in Elocu's world, doubling as a direct demo of the
+  "AI argues the opposing side" debate mechanic rather than a generic hero+headline+CTA. Palette
+  (ink `#14131B`/`#1E1C28`, parchment `#F3EDE1`/`#9C9488`, ember `#D98E4A`, verdigris `#5B8A82`) and
+  type pairing (Fraunces display, IBM Plex Mono for transcript/data, Inter body) are deliberately
+  distinct from the app's own Geist-based UI, since a marketing page and a tool don't need to share
+  a visual identity. Philosophy section adapts plan.md's own Plato/dialogue framing directly rather
+  than generic feature-selling copy; feedback-preview section mirrors the real feedback UI's actual
+  score-bar/quote/fix pattern so visitors know what they're signing up for.
+- **`/app`** — the original mode-selector screen, moved as-is under `app/(app)/app/page.tsx`.
+  `app/(app)/layout.tsx` now owns the Header/Sidebar chrome (moved out of the root layout) and
+  Geist font loading; the root `app/layout.tsx` is minimal (just html/body/metadata) so the landing
+  page's distinct fonts don't fight the app shell's.
+
+All internal "go to the app" links (Header's "New session", feedback page's "Start a new session")
+now point to `/app`; only the Header's brand/logo link still points to `/` (the landing page),
+which is the standard convention. Verified live: full route table builds correctly
+(`/`, `/app`, `/session/[id]`, `/session/[id]/feedback`, `/session/[id]/logs`), `/app` renders with
+full history/sidebar/mode-selector functionality intact, and the landing page's CTA correctly
+navigates to `/app` — screenshotted at desktop and mobile widths.
+
+**Noted for later, not built now**: the user wants to eventually gate access by paid subscription.
+No auth exists yet (`LOCAL_USER_ID` in `lib/types.ts` is a single fixed constant — see §5's original
+"no auth, single local user" decision). This lands as its own real project — auth, plans, billing,
+entitlement checks — not a small add-on, whenever it's picked up.
+
+---
+
+## 19. Progress dashboard
+
+Pulled forward from §"Scope decision"'s explicitly-deferred "longitudinal analytics dashboard" —
+the rationale there was that nothing about deferring it required a schema change later, since
+scores were kept numeric + per-category from day one. That bet paid off: `/app/progress` is built
+entirely on the existing `feedback.sections[key].score` shape, no migration needed.
+
+`lib/store.ts`'s `listAllFeedback()` reads every session's feedback back with its matching session
+(mode, createdAt); `lib/progress.ts` aggregates that into overall/per-section/per-mode averages plus
+a score-over-time trend — critically, **only from `valid` rows** (not `gradingFailed`, not
+`emptyTranscript`). Placeholder 3s from a failed grading pass would otherwise silently flatten the
+averages toward the middle; the page still counts them in "sessions completed" and says how many
+were excluded and why, rather than hiding the discrepancy.
+
+Chart components follow the dataviz skill's procedure but plug into the *design system already in
+use* rather than a separate token set: the per-section and per-mode breakdowns
+(`CategoryBarChart`) are single-hue bars (Tailwind `blue-600`, the same color the per-session
+feedback screen's own `ScoreBar` already uses for scores) since one measure across named categories
+needs no per-bar color, matching the skill's own rule that color follows the job it does. The
+trend chart (`TrendLineChart`) is the one place a real line was warranted — change over time is
+exactly that job — with a hover crosshair-style tooltip per the skill's interaction guidance.
+
+Verified against real accumulated usage data (5 graded sessions, no synthetic data): stat tiles,
+trend line, and both bar breakdowns all cross-checked against the raw JSON to confirm the
+aggregation matches, hover tooltip interaction confirmed live, and the Header gained a persistent
+"Progress" nav link alongside "New session".
