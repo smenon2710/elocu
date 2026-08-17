@@ -10,6 +10,14 @@ import type { Session } from "./types";
 // ground feedback in an approximate number, not a linguistically precise one.
 const FILLER_WORDS = ["um", "umm", "uh", "uhh", "er", "erm", "like", "you know", "i mean"] as const;
 
+// Confidence-softening words, distinct from vocal fillers above (no overlap
+// — "i mean" stays filler-only to avoid double-counting the same word into
+// two metrics). Same heuristic-not-NLP caveat applies, more so here: "just"
+// and "maybe" have plenty of legitimate non-hedging uses ("I just got back",
+// "maybe Tuesday works"). A rough signal to ground the fix in a real count,
+// not a precise linguistic classifier.
+const HEDGE_WORDS = ["i think", "i guess", "just", "kind of", "sort of", "basically", "maybe", "probably"] as const;
+
 // Below this much real speaking time, a words/minute figure is more noise
 // than signal (and on sessions from before turn duration was tracked
 // accurately, total duration is 0 — this keeps a nonsense/infinite WPM from
@@ -29,19 +37,24 @@ export interface DeliveryMetrics {
   fillerPct: number | null;
   /** Non-zero fillers found, sorted most→least common. */
   fillerBreakdown: [string, number][];
+  hedgeCount: number;
+  /** null when there are no words to divide by. */
+  hedgePct: number | null;
+  /** Non-zero hedges found, sorted most→least common. */
+  hedgeBreakdown: [string, number][];
 }
 
 function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-function countFillers(text: string): Record<string, number> {
+function countPhrases(text: string, phrases: readonly string[]): Record<string, number> {
   const lower = text.toLowerCase();
   const counts: Record<string, number> = {};
-  for (const filler of FILLER_WORDS) {
-    const pattern = new RegExp(`\\b${filler.replace(/\s+/g, "\\s+")}\\b`, "g");
+  for (const phrase of phrases) {
+    const pattern = new RegExp(`\\b${phrase.replace(/\s+/g, "\\s+")}\\b`, "g");
     const matches = lower.match(pattern);
-    if (matches) counts[filler] = matches.length;
+    if (matches) counts[phrase] = matches.length;
   }
   return counts;
 }
@@ -65,10 +78,16 @@ export function computeDeliveryMetrics(session: Session): DeliveryMetrics {
     if (raw > 0 && raw <= MAX_SANE_WPM) wpm = raw;
   }
 
-  const fillerCounts = countFillers(userTurns.map((t) => t.text).join(" "));
+  const joinedText = userTurns.map((t) => t.text).join(" ");
+  const fillerCounts = countPhrases(joinedText, FILLER_WORDS);
   const fillerCount = Object.values(fillerCounts).reduce((a, b) => a + b, 0);
   const fillerPct = totalWords > 0 ? (fillerCount / totalWords) * 100 : null;
   const fillerBreakdown = Object.entries(fillerCounts).sort((a, b) => b[1] - a[1]);
 
-  return { totalWords, wpm, fillerCount, fillerPct, fillerBreakdown };
+  const hedgeCounts = countPhrases(joinedText, HEDGE_WORDS);
+  const hedgeCount = Object.values(hedgeCounts).reduce((a, b) => a + b, 0);
+  const hedgePct = totalWords > 0 ? (hedgeCount / totalWords) * 100 : null;
+  const hedgeBreakdown = Object.entries(hedgeCounts).sort((a, b) => b[1] - a[1]);
+
+  return { totalWords, wpm, fillerCount, fillerPct, fillerBreakdown, hedgeCount, hedgePct, hedgeBreakdown };
 }

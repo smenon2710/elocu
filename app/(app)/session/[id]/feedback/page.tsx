@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { computeContentMetrics } from "@/lib/contentMetrics";
+import { computeConversationMetrics } from "@/lib/conversationMetrics";
 import { computeDeliveryMetrics } from "@/lib/deliveryMetrics";
-import { getFeedback, getSession } from "@/lib/store";
-import type { FeedbackSection, Session } from "@/lib/types";
+import { getFeedback, getPreviousAttemptForGoal, getSession } from "@/lib/store";
+import type { FeedbackSection, FeedbackSections, Session } from "@/lib/types";
 
 const SECTION_LABELS: Record<string, string> = {
   structure: "Structure",
@@ -49,20 +51,42 @@ function PitchTiming({ session }: { session: Session }) {
 }
 
 /**
- * Real pace + filler-word density, aggregated across every user turn (see
- * lib/deliveryMetrics.ts) — same measured data handed to the grading prompt,
- * shown here directly so it's visible even when grading fails or a section
- * falls back to a placeholder score.
+ * Real pace, filler-word, and hedging-word density, aggregated across every
+ * user turn (see lib/deliveryMetrics.ts) — same measured data handed to the
+ * grading prompt, shown here directly so it's visible even when grading
+ * fails or a section falls back to a placeholder score.
  */
 function DeliveryMetrics({ session }: { session: Session }) {
-  const { wpm, fillerCount, fillerPct } = computeDeliveryMetrics(session);
-  if (wpm === null && fillerPct === null) return null;
+  const { wpm, fillerCount, fillerPct, hedgeCount, hedgePct } = computeDeliveryMetrics(session);
+  if (wpm === null && fillerPct === null && hedgePct === null) return null;
 
   const parts: string[] = [];
   if (wpm !== null) parts.push(`${wpm} wpm`);
   if (fillerPct !== null) {
     parts.push(`${fillerCount} filler word${fillerCount === 1 ? "" : "s"} (${fillerPct.toFixed(1)}%)`);
   }
+  if (hedgePct !== null) {
+    parts.push(`${hedgeCount} hedge word${hedgeCount === 1 ? "" : "s"} (${hedgePct.toFixed(1)}%)`);
+  }
+
+  return <p className="mt-1 font-mono text-sm text-parchment-500">{parts.join(" · ")}</p>;
+}
+
+/** Vocabulary diversity (see lib/contentMetrics.ts) — same always-accurate pattern as DeliveryMetrics above. */
+function ContentMetrics({ session }: { session: Session }) {
+  const { ttrPct } = computeContentMetrics(session);
+  if (ttrPct === null) return null;
+  return <p className="mt-1 font-mono text-sm text-parchment-500">{ttrPct.toFixed(0)}% vocabulary diversity</p>;
+}
+
+/** Talk-time & question rate, Conversation mode only (see lib/conversationMetrics.ts). */
+function ConversationMetricsLine({ session }: { session: Session }) {
+  if (session.mode !== "conversation") return null;
+  const { talkTimePct, questionRatePct } = computeConversationMetrics(session);
+  if (talkTimePct === null) return null;
+
+  const parts = [`${talkTimePct.toFixed(0)}% talk time`];
+  if (questionRatePct !== null) parts.push(`asked a question back ${questionRatePct.toFixed(0)}% of turns`);
 
   return <p className="mt-1 font-mono text-sm text-parchment-500">{parts.join(" · ")}</p>;
 }
@@ -74,6 +98,18 @@ function ScoreBar({ score }: { score: number }) {
         <div key={n} className={`h-2 w-6 rounded-full ${n <= score ? "bg-ember-500" : "bg-ink-700"}`} />
       ))}
     </div>
+  );
+}
+
+/** "+1" / "-1" / "±0" vs. the last graded attempt on the same goal (see lib/store.ts's getPreviousAttemptForGoal). */
+function ScoreDelta({ diff }: { diff: number }) {
+  if (diff === 0) return <span className="font-mono text-xs text-parchment-500">±0</span>;
+  const tone = diff > 0 ? "text-verdigris-400" : "text-rust-400";
+  return (
+    <span className={`font-mono text-xs ${tone}`}>
+      {diff > 0 ? "+" : ""}
+      {diff}
+    </span>
   );
 }
 
@@ -103,6 +139,20 @@ export default async function FeedbackPage({ params }: { params: Promise<{ id: s
 
   const stillOpen = session.endedAt === null;
   const entries = Object.entries(feedback.sections) as [string, FeedbackSection][];
+  const valid = !feedback.gradingFailed && !feedback.emptyTranscript;
+
+  const previousAttempt =
+    session.goalLabel && valid
+      ? await getPreviousAttemptForGoal(session.goalLabel, session.id, session.createdAt)
+      : null;
+
+  const sectionAverage = (sections: FeedbackSections) => {
+    const scores = Object.values(sections)
+      .filter((s): s is FeedbackSection => !!s)
+      .map((s) => s.score);
+    return scores.reduce((sum, n) => sum + n, 0) / scores.length;
+  };
+  const overallDelta = previousAttempt ? sectionAverage(feedback.sections) - sectionAverage(previousAttempt.sections) : null;
 
   return (
     <main className="mx-auto max-w-2xl p-8">
@@ -110,8 +160,32 @@ export default async function FeedbackPage({ params }: { params: Promise<{ id: s
         {stillOpen ? "Feedback so far" : "Session feedback"}
       </p>
       <h1 className="mt-2 font-display text-3xl text-parchment-100">{session.topic}</h1>
+      {session.goalLabel && (
+        <p className="mt-1 text-sm text-parchment-500">
+          Part of{" "}
+          <Link
+            href={`/app/goals/${encodeURIComponent(session.goalLabel)}`}
+            className="text-verdigris-400 underline decoration-verdigris-500/40 underline-offset-2 hover:text-verdigris-300"
+          >
+            {session.goalLabel}
+          </Link>
+          {overallDelta !== null && (
+            <>
+              {" "}
+              — overall{" "}
+              <span className={overallDelta > 0 ? "text-verdigris-400" : overallDelta < 0 ? "text-rust-400" : ""}>
+                {overallDelta > 0 ? "+" : ""}
+                {overallDelta.toFixed(1)}
+              </span>{" "}
+              from your last attempt
+            </>
+          )}
+        </p>
+      )}
       <PitchTiming session={session} />
       <DeliveryMetrics session={session} />
+      <ContentMetrics session={session} />
+      <ConversationMetricsLine session={session} />
       {stillOpen && (
         <p className="mt-2 text-sm text-parchment-500">
           This session is still open — pick up where you left off whenever you&apos;re ready.
@@ -131,23 +205,29 @@ export default async function FeedbackPage({ params }: { params: Promise<{ id: s
       )}
 
       <div className="mt-6 space-y-6">
-        {entries.map(([key, section]) => (
-          <section key={key} className="rounded-2xl border border-hairline bg-ink-800 p-5">
-            <div className="flex items-center justify-between">
-              <h2 className="font-display text-lg text-parchment-100">{SECTION_LABELS[key] ?? key}</h2>
-              <ScoreBar score={section.score} />
-            </div>
-            {section.quotedMoment && (
-              <blockquote className="mt-3 border-l-2 border-verdigris-500 pl-3 font-mono text-sm text-parchment-500 italic">
-                &ldquo;{section.quotedMoment.text}&rdquo;
-              </blockquote>
-            )}
-            <p className="mt-3 text-sm text-parchment-300">
-              <span className="font-medium text-ember-400">Try this: </span>
-              {section.fix}
-            </p>
-          </section>
-        ))}
+        {entries.map(([key, section]) => {
+          const prevSection = previousAttempt?.sections[key as keyof FeedbackSections];
+          return (
+            <section key={key} className="rounded-2xl border border-hairline bg-ink-800 p-5">
+              <div className="flex items-center justify-between">
+                <h2 className="font-display text-lg text-parchment-100">{SECTION_LABELS[key] ?? key}</h2>
+                <div className="flex items-center gap-2">
+                  {prevSection && <ScoreDelta diff={section.score - prevSection.score} />}
+                  <ScoreBar score={section.score} />
+                </div>
+              </div>
+              {section.quotedMoment && (
+                <blockquote className="mt-3 border-l-2 border-verdigris-500 pl-3 font-mono text-sm text-parchment-500 italic">
+                  &ldquo;{section.quotedMoment.text}&rdquo;
+                </blockquote>
+              )}
+              <p className="mt-3 text-sm text-parchment-300">
+                <span className="font-medium text-ember-400">Try this: </span>
+                {section.fix}
+              </p>
+            </section>
+          );
+        })}
       </div>
 
       <div className="mt-8 flex flex-wrap gap-x-6 gap-y-2 font-mono text-xs tracking-wide uppercase">

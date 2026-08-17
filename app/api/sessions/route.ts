@@ -39,6 +39,9 @@ export async function POST(req: NextRequest) {
         : DEFAULT_PITCH_TIME_LIMIT_SEC
       : null;
 
+  const goalLabel: string | null =
+    typeof body?.goalLabel === "string" && body.goalLabel.trim() ? body.goalLabel.trim().slice(0, 100) : null;
+
   const session: Session = {
     id: randomUUID(),
     userId: LOCAL_USER_ID,
@@ -50,6 +53,7 @@ export async function POST(req: NextRequest) {
     documentRefs,
     turns: [],
     pitchTimeLimitSec,
+    goalLabel,
   };
 
   let openingError: string | null = null;

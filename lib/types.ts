@@ -31,6 +31,18 @@ export interface Session {
   turns: TranscriptTurn[];
   /** Only meaningful for `pitch` mode — the time budget (seconds) picked at start. Null for every other mode. */
   pitchTimeLimitSec: number | null;
+  /**
+   * Freeform, user-named identity for an ongoing thing being rehearsed
+   * across multiple sessions ("Pitch to Dale Carnegie", "Q3 board meeting
+   * speech") — optional, null for a one-off session. Sessions sharing a
+   * label group together for improvement tracking (lib/store.ts's
+   * listGoalLabels/getPreviousAttemptForGoal, the feedback page's
+   * attempt-over-attempt delta, and /app/goals/[label]'s trend view).
+   * Deliberately just a string, not a separate entity/table — matches
+   * `topic`'s existing freeform-text pattern rather than adding a new
+   * concept to manage.
+   */
+  goalLabel: string | null;
 }
 
 export interface QuotedMoment {

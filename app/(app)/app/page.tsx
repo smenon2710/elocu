@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DocSlot } from "@/app/components/DocSlot";
 import {
@@ -130,6 +130,12 @@ const EMPTY_DOCS: Record<DocumentKind, DocumentRef[]> = {
   other: [],
 };
 
+interface GoalSummary {
+  label: string;
+  count: number;
+  lastUsedAt: number;
+}
+
 export default function HomePage() {
   const router = useRouter();
   const [mode, setMode] = useState<SessionMode>("conversation");
@@ -140,16 +146,38 @@ export default function HomePage() {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Practice goals: an optional label ("Pitch to Dale Carnegie") that groups
+  // repeated attempts at the same thing so the feedback page can show
+  // improvement over time (see lib/store.ts's listGoalLabels/
+  // getPreviousAttemptForGoal). Scoped per mode since a goal is inherently
+  // tied to how you're rehearsing it.
+  const [goals, setGoals] = useState<GoalSummary[]>([]);
+  const [selectedGoal, setSelectedGoal] = useState<string | null>(null);
+  const [addingNewGoal, setAddingNewGoal] = useState(false);
+  const [newGoalName, setNewGoalName] = useState("");
+
   const config = MODE_CONFIG[mode];
   const canStart = config.topicOptional || topic.trim().length > 0;
   // Only Interview mode has a real use for a job description/resume/question
   // bank — showing this for Conversation/Speech/Orator/Debate never made sense.
   const docsAvailable = mode === "interview";
 
+  useEffect(() => {
+    fetch(`/api/goals?mode=${mode}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data.goals)) setGoals(data.goals);
+      })
+      .catch(() => {});
+  }, [mode]);
+
   function selectMode(next: SessionMode) {
     setMode(next);
     setTopic("");
     setError(null);
+    setSelectedGoal(null);
+    setAddingNewGoal(false);
+    setNewGoalName("");
   }
 
   function setDocsForKind(kind: DocumentKind, list: DocumentRef[]) {
@@ -164,6 +192,7 @@ export default function HomePage() {
       const documentRefs = docsAvailable
         ? [...docs.job_description, ...docs.resume, ...docs.question_list, ...docs.other]
         : [];
+      const goalLabel = addingNewGoal ? newGoalName.trim() : selectedGoal;
       const res = await fetch("/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -172,6 +201,7 @@ export default function HomePage() {
           topic: topic.trim(),
           documentRefs,
           ...(mode === "pitch" ? { pitchTimeLimitSec: pitchLimit } : {}),
+          ...(goalLabel ? { goalLabel } : {}),
         }),
       });
       const data = await res.json();
@@ -241,8 +271,73 @@ export default function HomePage() {
         </div>
       )}
 
+      <div className="mt-6">
+        <span className="font-mono text-xs tracking-wide text-parchment-500 uppercase">
+          Practicing something ongoing?
+        </span>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedGoal(null);
+              setAddingNewGoal(false);
+            }}
+            aria-pressed={!selectedGoal && !addingNewGoal}
+            className={`rounded-full border px-3 py-1 font-mono text-xs transition ${
+              !selectedGoal && !addingNewGoal
+                ? "border-ember-500 bg-ember-500/10 text-ember-400"
+                : "border-hairline text-parchment-500 hover:border-verdigris-500/50"
+            }`}
+          >
+            New / one-off
+          </button>
+          {goals.map((g) => (
+            <button
+              key={g.label}
+              type="button"
+              onClick={() => {
+                setSelectedGoal(g.label);
+                setAddingNewGoal(false);
+              }}
+              aria-pressed={selectedGoal === g.label}
+              className={`rounded-full border px-3 py-1 font-mono text-xs transition ${
+                selectedGoal === g.label
+                  ? "border-ember-500 bg-ember-500/10 text-ember-400"
+                  : "border-hairline text-parchment-500 hover:border-verdigris-500/50"
+              }`}
+            >
+              {g.label} ({g.count}x)
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => {
+              setAddingNewGoal(true);
+              setSelectedGoal(null);
+            }}
+            aria-pressed={addingNewGoal}
+            className={`rounded-full border px-3 py-1 font-mono text-xs transition ${
+              addingNewGoal
+                ? "border-ember-500 bg-ember-500/10 text-ember-400"
+                : "border-hairline text-parchment-500 hover:border-verdigris-500/50"
+            }`}
+          >
+            + Name a new goal
+          </button>
+        </div>
+        {addingNewGoal && (
+          <input
+            autoFocus
+            className="mt-2 w-full max-w-sm rounded-full border border-hairline bg-ink-800 px-3 py-1.5 text-sm text-parchment-100 placeholder:text-parchment-500/60 focus:border-ember-500"
+            placeholder='e.g. "Pitch to Dale Carnegie"'
+            value={newGoalName}
+            onChange={(e) => setNewGoalName(e.target.value)}
+          />
+        )}
+      </div>
+
       <textarea
-        className="mt-6 w-full rounded-xl border border-hairline bg-ink-800 p-3 text-sm text-parchment-100 placeholder:text-parchment-500/60 focus:border-ember-500"
+        className="mt-4 w-full rounded-xl border border-hairline bg-ink-800 p-3 text-sm text-parchment-100 placeholder:text-parchment-500/60 focus:border-ember-500"
         rows={3}
         placeholder={config.placeholder}
         value={topic}

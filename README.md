@@ -28,6 +28,16 @@ Interview mode is the only one with document upload (job description / resume / 
 multiple per category, paste or file) — attach as many as you want, it folds them all into the
 interviewer's context.
 
+## Practicing the same thing over and over
+
+If you're rehearsing one specific thing — an actual pitch, a real interview, a speech for a
+specific meeting — name it as a **practice goal** when you start a session (or pick a goal you've
+used before). Every session under that goal groups together: the feedback page shows how this
+attempt compares to your last one on the same goal ("+2.3 from your last attempt"), and
+`/app/goals/[label]` shows every attempt with a score-over-time trend scoped to just that goal —
+answering "am I actually getting better at *this*," not just the global average across everything
+you've ever practiced.
+
 ## Setup
 
 ```bash
@@ -91,10 +101,18 @@ npm run lint
   duration (see below), and for Pitch mode that real duration is handed to the grading prompt as
   objective pacing data (target vs. actual time, words/minute) so the Delivery fix can say "you ran
   12 seconds over" instead of guessing pace from word choice alone.
-- **`lib/deliveryMetrics.ts`** — words-per-minute and filler-word density (`um`, `like`, `you know`,
-  etc.), computed deterministically from real turn duration + transcript text for every mode, not
-  just Pitch. Feeds `lib/grading.ts`'s Delivery prompt as measured fact and shows as an
-  always-accurate stat line on the feedback page independent of whether grading itself succeeds.
+- **`lib/deliveryMetrics.ts`** — words-per-minute, filler-word density (`um`, `like`, `you know`,
+  etc.), and hedging-word density (`i think`, `just`, `kind of`, etc.), computed deterministically
+  from real turn duration + transcript text for every mode, not just Pitch. Feeds `lib/grading.ts`'s
+  Delivery prompt as measured fact and shows as an always-accurate stat line on the feedback page
+  independent of whether grading itself succeeds.
+- **`lib/contentMetrics.ts`** — vocabulary diversity (type-token ratio), feeding the Content section.
+- **`lib/conversationMetrics.ts`** — talk-time ratio and question-asking rate, Conversation mode
+  only (the back-and-forth shape that makes these meaningful doesn't apply to a Pitch/Speech
+  monologue or Interview/Debate's different turn-taking norms). Feeds the Engagement section.
+- Interview mode's Structure section is graded explicitly against the **STAR method**
+  (Situation/Task/Action/Result) — not a computed metric, a grading-prompt refinement in
+  `lib/grading.ts`'s `interviewStructureNote()`.
 - **`lib/store.ts`** — file-based persistence, no database. Sessions and feedback live in
   `data/sessions/*.json` (gitignored). Swapping to a real DB later is contained to this one file.
 - **`lib/useSpeech.ts`** — browser Web Speech API wrapper. Push-to-talk-until-you're-done: the mic

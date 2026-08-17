@@ -608,3 +608,78 @@ unfinished session correctly not counting isn't a bug. Confirmed the wiring itse
 completing a real pitch session end-to-end and watching it appear immediately in the graded-session
 count, the trend line, and "Average score by mode" (`lib/progress.ts`'s `MODE_LABELS` already had a
 `pitch` entry from §21). No code change needed here.
+
+---
+
+## 25. Practice goals — tracking improvement on one specific thing, not just everything in aggregate
+
+Real motivating scenario: someone rehearsing one actual pitch for a real meeting, or one specific
+speech, wants to know "am I getting better at *this*," not just their overall average across every
+topic they've ever practiced. This is exactly what §22's "Re-practice & compare" backlog item was
+pointing at, now with a concrete use case instead of a hypothetical.
+
+**Design decision, asked rather than assumed**: the real fork was how sessions get grouped as "the
+same thing." Two shapes were on the table — a lightweight freeform label (matches how `topic`
+already works, no new screen) vs. a structured "Practice Goals" management page (more powerful,
+more setup). Given the app's whole "no setup screen" identity, the lightweight option seemed like
+the obvious pick, but grouping/naming UX is exactly the kind of decision that's genuinely the user's
+to make, not a default to assume — asked directly, lightweight label confirmed.
+
+**Shape of it**: `Session.goalLabel: string | null` (`lib/types.ts`) — deliberately just a string,
+not a new entity/table, matching `topic`'s existing pattern rather than introducing a concept to
+manage. When starting a session, a "Practicing something ongoing?" row under the topic field
+(`app/(app)/app/page.tsx`) offers "New / one-off" (default), any goals already used in that mode
+(fetched from the new `GET /api/goals?mode=X`, scoped per-mode since a goal is inherently tied to
+how you're rehearsing it), or "+ Name a new goal". `lib/store.ts` gained `listGoalLabels()` (powers
+that picker), `listAttemptsForGoal()`, and `getPreviousAttemptForGoal()` — all built on top of the
+existing `listAllFeedback()` rather than a parallel index, since the file-based store is small enough
+that scanning is cheap and a second source of truth isn't worth the drift risk.
+
+Two places surface the tracking: the feedback page shows an attempt-over-attempt delta right where
+you're already looking (*"Part of Elocu pitch to Dale Carnegie — overall +2.3 from your last
+attempt"*, plus a per-section `+2`/`-1`/`±0` badge next to each score bar), and a new
+`/app/goals/[label]` page shows every attempt with a trend line scoped to just that goal (reusing
+`TrendLineChart`, which was already generic over points) — the answer to "am I getting better at
+this," not the global cross-topic average `/app/progress` gives. The history sidebar shows a small
+`↳ goal label` tag under any session that has one.
+
+Verified live: two pitch sessions on the goal "Elocu pitch to Dale Carnegie" (a deliberately weak,
+filler-heavy first attempt scoring 2.0 average, a cleaner second attempt scoring 4.3) produced
+*"Part of Elocu pitch to Dale Carnegie — overall +2.3 from your last attempt"* on the feedback page
+and a correctly-plotted two-point rising trend on `/app/goals/Elocu%20pitch%20to%20Dale%20Carnegie`.
+
+### New tracking parameters
+
+Picked from the metrics-framework evaluation in §23 (four selected, one deliberately still not
+started — see below):
+
+- **Hedging & weak words** — `lib/deliveryMetrics.ts` extended with a second word list (`i think`,
+  `i guess`, `just`, `kind of`, `sort of`, `basically`, `maybe`, `probably`), same heuristic
+  word-boundary approach as filler words, no overlap between the two lists. Feeds the Delivery
+  section alongside pace and fillers.
+- **Vocabulary diversity** — new `lib/contentMetrics.ts`, type-token ratio (unique words / total
+  words) across user turns, gated behind a 20-word minimum since TTR is meaningless noise on a short
+  turn. Explicitly documented as biased by text length (longer sessions naturally show a lower ratio
+  even with no real change in vocabulary richness) — the grading prompt is told to weigh it lightly,
+  not treat it as a precise score. Feeds the Content section.
+- **Talk-time & question ratio** — new `lib/conversationMetrics.ts`, word-count share per speaker
+  and the fraction of user turns containing a "?". Conversation mode only — the back-and-forth shape
+  that makes "talk time" and "did you ask something back" meaningful doesn't exist in a Pitch/Speech
+  monologue and doesn't map cleanly onto Interview/Debate's different turn-taking norms. Feeds the
+  Engagement section.
+- **STAR structure check (Interview mode)** — not a computed metric, a grading-prompt refinement:
+  `interviewStructureNote()` in `lib/grading.ts` explicitly tells the model to evaluate Structure
+  against Situation/Task/Action/Result and name which component was weakest or missing.
+
+All four verified live with real transcripts built to exercise them: a conversation turn that never
+asked a question back produced *"asked a question back 0% of turns"* on the feedback page and an
+Engagement fix telling the user to end with a question; a STAR-incomplete interview answer (Situation
++ Task + Action, no Result) produced a Structure fix reading *"Add a sentence describing the outcome
+of the rewrite..."* — correctly identifying the specific missing component rather than a generic
+"be clearer" comment.
+
+**Deliberately not built in this pass** (per §23's original scope-out, still holding): grammar-error
+detection and sentiment/tone bias were both evaluated and left out — grammar checking is a
+meaningfully different, more specialized problem than word-list counting, and sentiment/tone
+overlaps enough with the existing Engagement/Argumentation sections that a dedicated metric risked
+rubric bloat for unclear added value. Both stay on the list if a concrete need for them shows up.

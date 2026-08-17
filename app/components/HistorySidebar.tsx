@@ -14,6 +14,7 @@ interface SessionSummary {
   turnCount: number;
   documentsUsed: boolean;
   hasFeedback: boolean;
+  goalLabel: string | null;
 }
 
 const MODE_LABELS: Record<SessionMode, string> = {
@@ -92,6 +93,9 @@ export function HistorySidebar() {
                   <p className="mt-0.5 font-mono text-[11px] text-parchment-500">
                     {MODE_LABELS[s.mode]} · {relativeTime(s.createdAt)}
                   </p>
+                  {s.goalLabel && (
+                    <p className="mt-0.5 truncate font-mono text-[10px] text-verdigris-400">↳ {s.goalLabel}</p>
+                  )}
                 </Link>
                 {paused && (
                   <Link

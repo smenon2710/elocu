@@ -1,5 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
+import { computeContentMetrics } from "./contentMetrics";
+import { computeConversationMetrics } from "./conversationMetrics";
 import { computeDeliveryMetrics } from "./deliveryMetrics";
 import { chatCompletion, parseJsonObject, type ModelChoice } from "./llm";
 import type { Feedback, FeedbackSection, FeedbackSections, QuotedMoment, Session } from "./types";
@@ -106,8 +108,9 @@ const SECTION_DESCRIPTIONS: Record<SectionKey, string> = {
   structure:
     "Clear shape to the answer (setup -> tension -> resolution), strong opening line vs. throat-clearing, landing on a clear takeaway.",
   delivery:
-    "Pace/rhythm, filler words, hedging language, use of pauses. Objective words-per-minute pace and filler-word counts are provided separately below as measured data (not inferred) — ground the score/fix in those directly. Hedging language, rhythm, and pauses still have to be inferred from phrasing since no audio is available.",
-  content: "Specificity vs. vague generality, relevance to the question asked, conciseness.",
+    "Pace/rhythm, filler words, hedging language, use of pauses. Objective words-per-minute pace, filler-word counts, and hedging-word counts are provided separately below as measured data (not inferred) — ground the score/fix in those directly. Rhythm and pauses still have to be inferred from phrasing since no audio is available.",
+  content:
+    "Specificity vs. vague generality, relevance to the question asked, conciseness. A vocabulary-diversity figure (type-token ratio) is provided separately below as measured data where there's enough text for it to mean anything — use it as one input, not the whole judgment (a low ratio in a short answer is normal, not necessarily weak).",
   engagement: "Hook strength of the opening, emotional variation vs. flatness, awareness of the listener/context.",
   contextFit: "Alignment with the provided job description/resume, coverage of the provided question bank.",
   argumentation:
@@ -179,7 +182,8 @@ note if they rushed/dragged relative to a natural pace.`;
 function deliveryMetricsBlock(session: Session): string {
   if (!session.turns.some((t) => t.speaker === "user")) return "";
 
-  const { totalWords, wpm, fillerCount, fillerPct, fillerBreakdown } = computeDeliveryMetrics(session);
+  const { totalWords, wpm, fillerCount, fillerPct, fillerBreakdown, hedgeCount, hedgePct, hedgeBreakdown } =
+    computeDeliveryMetrics(session);
   const parts: string[] = [];
 
   if (wpm !== null && session.mode !== "pitch") {
@@ -195,13 +199,78 @@ function deliveryMetricsBlock(session: Session): string {
     );
   }
 
+  if (hedgePct !== null) {
+    const breakdown = hedgeBreakdown.map(([w, c]) => `"${w}" x${c}`).join(", ");
+    parts.push(
+      `Hedging-word count: ${hedgeCount} across ${totalWords} words (${hedgePct.toFixed(1)}%)${breakdown ? ` — ${breakdown}` : ""}. These are heuristic word-list counts, not a precise linguistic classifier — use judgment on which instances actually read as hedging vs. normal use.`
+    );
+  }
+
   if (parts.length === 0) return "";
   return `
 
 Objective delivery data for the Delivery section (measured, not inferred —
-ground the score/fix in this rather than guessing pace or filler use from
-phrasing alone):
+ground the score/fix in this rather than guessing pace or filler/hedge use
+from phrasing alone):
 ${parts.join("\n")}`;
+}
+
+/**
+ * Vocabulary diversity (type-token ratio) for the Content section — see
+ * lib/contentMetrics.ts for why this only fires above a minimum word count.
+ */
+function contentMetricsBlock(session: Session): string {
+  const { totalWords, uniqueWords, ttrPct } = computeContentMetrics(session);
+  if (ttrPct === null) return "";
+
+  return `
+
+Objective vocabulary data for the Content section (measured, not inferred):
+${uniqueWords} unique words out of ${totalWords} total (${ttrPct.toFixed(1)}% type-token ratio).
+Note this drops naturally as a session runs longer even with no change in
+actual vocabulary richness — weigh it lightly, don't treat it as a precise
+sophistication score.`;
+}
+
+/**
+ * Talk-time ratio and question rate for the Engagement section, Conversation
+ * mode only — the back-and-forth shape that makes these meaningful doesn't
+ * exist in Pitch/Speech (a single monologue) or map cleanly onto
+ * Interview/Debate's different turn-taking norms.
+ */
+function conversationMetricsBlock(session: Session): string {
+  if (session.mode !== "conversation") return "";
+  const { talkTimePct, questionRatePct, userTurnCount } = computeConversationMetrics(session);
+  if (talkTimePct === null || userTurnCount === 0) return "";
+
+  return `
+
+Objective conversation-dynamics data for the Engagement section (measured,
+not inferred): you accounted for ${talkTimePct.toFixed(0)}% of the words spoken
+(a healthy back-and-forth is roughly 45-55% — well above suggests dominating
+the conversation, well below suggests under-participating).${
+    questionRatePct !== null
+      ? ` You asked a question back in ${questionRatePct.toFixed(0)}% of your turns (asking
+nothing back across many turns can read as low awareness of the other
+person, not just low curiosity).`
+      : ""
+  }`;
+}
+
+/**
+ * Interview mode's Structure check, made explicit: not a computed metric
+ * like the blocks above — a grading-instruction refinement so the model
+ * checks a concrete framework (Situation/Task/Action/Result) instead of a
+ * generic "clear shape" judgment.
+ */
+function interviewStructureNote(session: Session): string {
+  if (session.mode !== "interview") return "";
+  return `
+
+For the Structure section specifically, evaluate against the STAR method:
+does the answer establish the Situation, the Task, the Action taken, and the
+Result? Name in the fix which STAR component was weakest or missing, not a
+generic structure comment.`;
 }
 
 function fallbackSection(): FeedbackSection {
@@ -261,6 +330,9 @@ Transcript (each line prefixed with its turn index in brackets):
 ${transcriptForPrompt(session)}
 ${pitchTimingBlock(session)}
 ${deliveryMetricsBlock(session)}
+${contentMetricsBlock(session)}
+${conversationMetricsBlock(session)}
+${interviewStructureNote(session)}
 
 Score the USER's performance on each section below, on an integer scale of 1
 (needs significant work) to 5 (excellent). For each section, quote exactly one

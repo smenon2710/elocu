@@ -48,6 +48,29 @@ export interface SessionSummary {
   turnCount: number;
   documentsUsed: boolean;
   hasFeedback: boolean;
+  goalLabel: string | null;
+}
+
+async function readAllSessions(): Promise<Session[]> {
+  let files: string[];
+  try {
+    files = await fs.readdir(SESSIONS_DIR);
+  } catch {
+    return [];
+  }
+
+  const sessionFiles = files.filter((f) => f.endsWith(".json") && !f.endsWith(".feedback.json"));
+  const sessions = await Promise.all(
+    sessionFiles.map(async (f) => {
+      try {
+        const raw = await fs.readFile(path.join(SESSIONS_DIR, f), "utf-8");
+        return JSON.parse(raw) as Session;
+      } catch {
+        return null;
+      }
+    })
+  );
+  return sessions.filter((s): s is Session => s !== null);
 }
 
 /**
@@ -67,21 +90,10 @@ export async function listSessions(limit = 50): Promise<SessionSummary[]> {
   const feedbackIds = new Set(
     files.filter((f) => f.endsWith(".feedback.json")).map((f) => f.slice(0, -".feedback.json".length))
   );
-  const sessionFiles = files.filter((f) => f.endsWith(".json") && !f.endsWith(".feedback.json"));
 
-  const sessions = await Promise.all(
-    sessionFiles.map(async (f) => {
-      try {
-        const raw = await fs.readFile(path.join(SESSIONS_DIR, f), "utf-8");
-        return JSON.parse(raw) as Session;
-      } catch {
-        return null;
-      }
-    })
-  );
+  const sessions = await readAllSessions();
 
   return sessions
-    .filter((s): s is Session => s !== null)
     .sort((a, b) => b.createdAt - a.createdAt)
     .slice(0, limit)
     .map((s) => ({
@@ -93,13 +105,46 @@ export async function listSessions(limit = 50): Promise<SessionSummary[]> {
       turnCount: s.turns.length,
       documentsUsed: s.documentsUsed,
       hasFeedback: feedbackIds.has(s.id),
+      goalLabel: s.goalLabel ?? null,
     }));
+}
+
+export interface GoalSummary {
+  label: string;
+  count: number;
+  lastUsedAt: number;
+}
+
+/**
+ * Distinct goal labels in use, most recently used first — powers the "keep
+ * practicing this?" picker in the mode selector (app/(app)/app/page.tsx).
+ * Scanning every session (not just graded ones) so a goal shows up as
+ * pickable even before its first attempt has been graded.
+ */
+export async function listGoalLabels(mode?: SessionMode): Promise<GoalSummary[]> {
+  const sessions = await readAllSessions();
+  const totals = new Map<string, { count: number; lastUsedAt: number }>();
+
+  for (const s of sessions) {
+    if (!s.goalLabel) continue;
+    if (mode && s.mode !== mode) continue;
+    const entry = totals.get(s.goalLabel) ?? { count: 0, lastUsedAt: 0 };
+    entry.count += 1;
+    entry.lastUsedAt = Math.max(entry.lastUsedAt, s.createdAt);
+    totals.set(s.goalLabel, entry);
+  }
+
+  return Array.from(totals.entries())
+    .map(([label, { count, lastUsedAt }]) => ({ label, count, lastUsedAt }))
+    .sort((a, b) => b.lastUsedAt - a.lastUsedAt);
 }
 
 export interface FeedbackWithSession {
   sessionId: string;
   mode: SessionMode;
+  topic: string;
   createdAt: number;
+  goalLabel: string | null;
   sections: FeedbackSections;
   /** False if gradingFailed or emptyTranscript — placeholder scores that would skew averages. */
   valid: boolean;
@@ -107,9 +152,9 @@ export interface FeedbackWithSession {
 
 /**
  * Every session that has feedback, oldest first — the raw material for the
- * progress dashboard. Reads each feedback file's matching session file
- * alongside it (for mode/createdAt) rather than requiring two separate
- * round trips per caller.
+ * progress dashboard and goal-comparison views. Reads each feedback file's
+ * matching session file alongside it (for mode/topic/createdAt/goalLabel)
+ * rather than requiring two separate round trips per caller.
  */
 export async function listAllFeedback(): Promise<FeedbackWithSession[]> {
   let files: string[];
@@ -133,7 +178,9 @@ export async function listAllFeedback(): Promise<FeedbackWithSession[]> {
         return {
           sessionId,
           mode: session.mode,
+          topic: session.topic,
           createdAt: session.createdAt,
+          goalLabel: session.goalLabel ?? null,
           sections: fb.sections,
           valid: !fb.gradingFailed && !fb.emptyTranscript,
         };
@@ -146,6 +193,31 @@ export async function listAllFeedback(): Promise<FeedbackWithSession[]> {
   return rows
     .filter((r): r is FeedbackWithSession => r !== null)
     .sort((a, b) => a.createdAt - b.createdAt);
+}
+
+/**
+ * Every valid, graded attempt sharing a goal label, oldest first — the raw
+ * material for /app/goals/[label]'s trend view and the feedback page's
+ * attempt-over-attempt delta.
+ */
+export async function listAttemptsForGoal(goalLabel: string): Promise<FeedbackWithSession[]> {
+  const all = await listAllFeedback();
+  return all.filter((r) => r.valid && r.goalLabel === goalLabel);
+}
+
+/**
+ * The most recent graded attempt on the same goal, before `beforeCreatedAt`
+ * and excluding `excludeSessionId` — what the feedback page compares the
+ * current attempt against to show "+1 from last time".
+ */
+export async function getPreviousAttemptForGoal(
+  goalLabel: string,
+  excludeSessionId: string,
+  beforeCreatedAt: number
+): Promise<FeedbackWithSession | null> {
+  const attempts = await listAttemptsForGoal(goalLabel);
+  const prior = attempts.filter((r) => r.sessionId !== excludeSessionId && r.createdAt < beforeCreatedAt);
+  return prior.length > 0 ? prior[prior.length - 1] : null;
 }
 
 export async function deleteSession(id: string): Promise<void> {
