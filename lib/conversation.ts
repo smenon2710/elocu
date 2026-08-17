@@ -5,16 +5,28 @@ import { MAX_EXCHANGES_BY_MODE, type Session } from "./types";
 const KICKOFF_MESSAGE = "(The session is starting now. Begin the conversation.)";
 
 // Groq primary: this is the live, latency-sensitive path the user waits on,
-// and speed via custom inference hardware is Groq's whole value proposition
-// — llama-3.1-8b-instant is their fastest general-purpose tier and still
-// supports tools/json_mode. Fallback chain: OpenRouter/Gemma (proven
-// fast+reliable earlier this session), then local Ollama/llama3.2 as a last
-// resort — benchmarked against qwen3:8b, mistral, and deepseek-r1 on this
-// machine; llama3.2 was the only one with usable speed (~1.1s for a real
-// persona prompt) and decent instruction-following, so it's the one kept.
+// and speed via custom inference hardware is Groq's whole value proposition.
+// llama-3.1-8b-instant (the model this used to point to) was fully removed
+// from Groq's catalog at some point after §13 — every call was 404ing with
+// model_not_found (see plan.md §22). Re-benchmarked live against Groq's
+// current /openai/v1/models list: openai/gpt-oss-20b was the fastest
+// (~0.3s), kept its reasoning in a separate `reasoning` response field
+// rather than leaking a <think> block into `content` (qwen/qwen3.6-27b did
+// exactly that — same disqualifying pattern §15 ruled out other "thinking"
+// models for), and followed the persona instructions with the most natural,
+// least stilted tone of what was tested (allam-2-7b was a fully reliable
+// alternative but noticeably more formal/corporate-sounding, which works
+// against "genuine conversation, not a form"). One real quirk found and
+// accepted: on ~1/18 sampled multi-turn calls, Groq rejected gpt-oss-20b's
+// output with a 400 tool_use_failed ("Tool choice is none, but model called
+// a tool") — an OpenAI "harmony" response-format artifact, not something
+// this app's request shape can avoid. The fallback chain below is exactly
+// what absorbs that: confirmed live, it fails over to OpenRouter/Gemma
+// mid-conversation with no visible break to the user, just ~2s more
+// latency for that one turn.
 const CONVERSATION_PRIMARY: ModelChoice = {
   provider: "groq",
-  model: process.env.GROQ_MODEL_CONVERSATION || "llama-3.1-8b-instant",
+  model: process.env.GROQ_MODEL_CONVERSATION || "openai/gpt-oss-20b",
 };
 const CONVERSATION_FALLBACKS: ModelChoice[] = [
   {

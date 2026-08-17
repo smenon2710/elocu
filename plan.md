@@ -478,16 +478,7 @@ reuses the same tagline as the in-app mode selector and quotes the real persona 
 Identified while building §20–21 but deliberately not fixed in the same pass — recorded here per
 this project's own convention (see intro) so they're pickable next session instead of getting lost.
 
-- **[Bug, live and currently active as of 2026-08-17]** Groq's `llama-3.1-8b-instant` — the model
-  `.env.local` and the code defaults in `lib/conversation.ts`/`lib/grading.ts` both pin as primary
-  for *both* conversation and grading (§13) — now 404s with `model_not_found` on every single call.
-  Confirmed in `data/logs/llm-2026-08-17.jsonl`: every Groq call logged today failed with this exact
-  error, for both the `conversation` and `grading` labels. The app still works — `chatCompletion`'s
-  fallback chain (§15) catches it and falls through to OpenRouter/Gemma every time — but this
-  silently defeats the entire "Groq primary for speed" rationale from §13 (every call now pays for a
-  failed Groq round-trip first) and isn't visible anywhere except the logs or the in-app call-log
-  page. Fix: check Groq's current model list and update `GROQ_MODEL_CONVERSATION` /
-  `GROQ_MODEL_GRADING` in `.env.local` plus the code defaults.
+- ~~**[Bug]** Groq's `llama-3.1-8b-instant` 404ing on every call.~~ **Done, §24.**
 - ~~**[Improvement]** Extend objective WPM pacing beyond Pitch mode.~~ **Done, §23.**
 - **[Idea, not started]** Re-practice & compare — redo the same topic and see a direct before/after
   score diff, rather than only the aggregate trend line on `/app/progress`. More actionable and
@@ -544,3 +535,76 @@ word density from 12.8% by removing the three instances of 'like' and two instan
 know'..."* — the LLM's own fix text and the feedback page's independently-computed stat line matched
 exactly (12.8% in both places), confirming the grading prompt and the UI are reading the same real
 numbers rather than the model inventing its own estimate.
+
+---
+
+## 24. Fixing the dead Groq model (`llama-3.1-8b-instant` → `openai/gpt-oss-20b`)
+
+§22 flagged this live: every Groq call was 404ing with `model_not_found` for
+`llama-3.1-8b-instant`. Rather than guess a replacement from training data (which is exactly how the
+app ended up pinned to a model that later got removed), queried Groq's own `GET
+/openai/v1/models` with the real API key to get ground truth on what's actually being served today.
+The current catalog is a different shape entirely — no `llama-3.x` models at all; instead
+`openai/gpt-oss-{20b,120b,safeguard-20b}`, `qwen/qwen3.6-27b`, `allam-2-7b`, `groq/compound{,-mini}`,
+plus Whisper (STT) and prompt-guard classifier models that aren't chat models at all.
+
+Benchmarked the plausible chat candidates head-to-head with the app's real conversation and grading
+prompts (not synthetic ones), same rigor as §15's original Ollama benchmarking:
+
+- **`qwen/qwen3.6-27b`** — disqualified immediately: a reasoning model that inlines its `<think>...
+  </think>` block directly into the `content` field with no separation, meaning the raw chain-of-
+  thought would render straight into the chat as if it were the AI's line. Same failure shape §15
+  already ruled out `qwen3:8b`/`deepseek-r1` for, just on a different provider.
+- **`openai/gpt-oss-120b`** and **`groq/compound-mini`** — both produced valid JSON for grading, but
+  both graded the *AI's* opening line as if it were the user's answer (turnIndex 0, not 1) — a real
+  rubric-following failure, not just a formatting one. `120b` was also 7-10x slower than `20b`
+  (2-3s vs. ~0.3s) for no quality benefit.
+- **`allam-2-7b`** — fully reliable across every test (6/6 clean on a repeated multi-turn
+  conversation probe, no quirks), but its English conversational tone ran noticeably more
+  formal/corporate ("a proactive approach to ensure smooth functionality and performance") than the
+  persona prompt's "curious, attentive conversation partner, not a form" is going for. Makes sense —
+  it's SDAIA's Arabic-first bilingual model, English is its secondary language.
+- **`openai/gpt-oss-20b`** — fastest (~0.3s), cleanly separates its reasoning into its own
+  `reasoning` response field rather than leaking it into `content`, and gave both the most natural
+  conversational tone and the most rubric-accurate grading fix of everything tested (correctly
+  identified and quoted the seeded filler words in a test transcript, where `120b`/`compound-mini`
+  graded the wrong speaker entirely).
+
+Picked `openai/gpt-oss-20b` for **both** conversation and grading — deliberately re-adopting the
+exact model §16 switched *away* from after it twice produced malformed JSON for grading. That's not
+an accident: this model has two known failure modes on Groq (malformed JSON; and a newly-discovered
+one below), and the honest reason it's still the right pick is that both failure modes are
+*already* what this app's existing safety nets exist to catch gracefully — `validateQuotedMoment()`
+(§13) and the parse-validation fallback (§16) for grading, and the provider fallback chain (§15) for
+conversation — rather than something a "safer-looking" model choice would actually make disappear.
+
+**A new failure mode found during this pass**: on a live app test, Groq rejected a second-turn
+conversation call from `gpt-oss-20b` with `400 tool_use_failed` — *"Tool choice is none, but model
+called a tool"* — an artifact of the OpenAI "harmony" response format gpt-oss models use internally,
+apparently firing even with zero tools registered on the request. Re-sampled 18 direct multi-turn
+calls to characterize it: 1 failure, ~5.6%, intermittent rather than reliably reproducible — the same
+"occasional, not most calls" shape as the original malformed-JSON issue. Confirmed live end-to-end
+that the existing fallback chain absorbs it exactly as designed: Groq fails, `chatCompletion` retries
+against OpenRouter/Gemma automatically, the conversation continues with no visible break to the user
+beyond ~2s of extra latency on that one turn.
+
+Verified the fix live: a fresh conversation session's opening call succeeded on Groq directly (410ms,
+no fallback logged), and a full session (message → end → grade) completed with `gradingFailed:
+false` and a Delivery fix correctly grounded in the real filler/pace data from §23. Updated
+`.env.local`, `.env.example`, and the code defaults in `lib/conversation.ts`/`lib/grading.ts`, with
+the full reasoning above kept in both files' comments so the next time a Groq model disappears,
+the investigation doesn't have to start from zero.
+
+**Also evaluated per the user's request to make sure prior-discussion items are captured before
+moving on**: re-checked §22's remaining backlog (re-practice/compare, adjustable Debate/Interview
+intensity, public-deployment blockers) and §23's metrics-framework scope-out (hedging/weak-word
+counting, all acoustic/video metrics) — both still accurately reflect what was discussed and remain
+correctly un-started; nothing from earlier conversation was found undocumented.
+
+**Not a bug, checked in the same pass**: a report that "Pitch mode progress isn't wired into
+`/app/progress`" turned out to be a live, in-progress Pitch session (only the AI's opening line, no
+user turn yet) — the progress page only counts *graded* sessions, same as every other mode, so an
+unfinished session correctly not counting isn't a bug. Confirmed the wiring itself is correct by
+completing a real pitch session end-to-end and watching it appear immediately in the graded-session
+count, the trend line, and "Average score by mode" (`lib/progress.ts`'s `MODE_LABELS` already had a
+`pitch` entry from §21). No code change needed here.

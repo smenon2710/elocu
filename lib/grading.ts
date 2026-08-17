@@ -68,23 +68,26 @@ export async function getSessionParseFailures(sessionId: string): Promise<ParseF
   return rows.sort((a, b) => a.ts.localeCompare(b.ts));
 }
 
-// Groq primary: was openai/gpt-oss-20b (picked for its advertised
-// structured_outputs support), but real usage caught it generating
-// syntactically malformed JSON twice — missing the comma between sibling
-// section keys (e.g. "structure":{...},{"delivery":{...} instead of
-// "structure":{...},"delivery":{...}) — once on OpenRouter's free tier and
-// again on Groq. Two confirmed occurrences of the same model doing the same
-// thing is a pattern, not noise. Switched to llama-3.1-8b-instant (same
-// model already used for conversation), which has been reliable in every
-// observed case across both providers. Fallback chain: OpenRouter/Gemma
-// (proven fast+reliable earlier this session), then local Ollama/llama3.2 as
-// a last resort — the only local model benchmarked that returned valid JSON
-// in a reasonable time (~5.2s; qwen3:8b/deepseek-r1's reasoning overhead and
-// mistral's slowness ruled them out). validateQuotedMoment() below still
-// guards against any model misattributing a quote to the wrong speaker.
+// Groq primary: was llama-3.1-8b-instant (switched to after gpt-oss-20b
+// twice produced malformed JSON — see the note on validateQuotedMoment()
+// below, which was itself added after gpt-oss-20b misattributed a quote).
+// llama-3.1-8b-instant was then fully removed from Groq's catalog at some
+// point after that — every call was 404ing with model_not_found (see
+// plan.md §22). Re-benchmarked live against Groq's current model list: no
+// candidate is risk-free, so this is gpt-oss-20b again, deliberately —
+// fastest (~0.3s vs. 2-3s for gpt-oss-120b), valid JSON in 6/6 live test
+// runs today, and clearly the most rubric-accurate of the options tested
+// (gpt-oss-120b and groq/compound-mini both graded the AI's own opening
+// line instead of the user's turn; allam-2-7b's fixes were vaguer and its
+// scores less sensitive to actual filler-heavy delivery). Its two known
+// failure modes — malformed JSON, misattributed quotes — are exactly what
+// the parse-validation fallback below and validateQuotedMoment() exist to
+// catch gracefully, which is the real reason it's an acceptable choice
+// again rather than a repeat of the original mistake. Fallback chain
+// unchanged: OpenRouter/Gemma, then local Ollama/llama3.2.
 const GRADING_PRIMARY: ModelChoice = {
   provider: "groq",
-  model: process.env.GROQ_MODEL_GRADING || "llama-3.1-8b-instant",
+  model: process.env.GROQ_MODEL_GRADING || "openai/gpt-oss-20b",
 };
 const GRADING_FALLBACKS: ModelChoice[] = [
   {
