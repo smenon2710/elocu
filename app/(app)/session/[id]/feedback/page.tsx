@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { computeDeliveryMetrics } from "@/lib/deliveryMetrics";
 import { getFeedback, getSession } from "@/lib/store";
 import type { FeedbackSection, Session } from "@/lib/types";
 
@@ -47,6 +48,25 @@ function PitchTiming({ session }: { session: Session }) {
   );
 }
 
+/**
+ * Real pace + filler-word density, aggregated across every user turn (see
+ * lib/deliveryMetrics.ts) — same measured data handed to the grading prompt,
+ * shown here directly so it's visible even when grading fails or a section
+ * falls back to a placeholder score.
+ */
+function DeliveryMetrics({ session }: { session: Session }) {
+  const { wpm, fillerCount, fillerPct } = computeDeliveryMetrics(session);
+  if (wpm === null && fillerPct === null) return null;
+
+  const parts: string[] = [];
+  if (wpm !== null) parts.push(`${wpm} wpm`);
+  if (fillerPct !== null) {
+    parts.push(`${fillerCount} filler word${fillerCount === 1 ? "" : "s"} (${fillerPct.toFixed(1)}%)`);
+  }
+
+  return <p className="mt-1 font-mono text-sm text-parchment-500">{parts.join(" · ")}</p>;
+}
+
 function ScoreBar({ score }: { score: number }) {
   return (
     <div className="flex gap-1" aria-label={`Score ${score} out of 5`}>
@@ -91,6 +111,7 @@ export default async function FeedbackPage({ params }: { params: Promise<{ id: s
       </p>
       <h1 className="mt-2 font-display text-3xl text-parchment-100">{session.topic}</h1>
       <PitchTiming session={session} />
+      <DeliveryMetrics session={session} />
       {stillOpen && (
         <p className="mt-2 text-sm text-parchment-500">
           This session is still open — pick up where you left off whenever you&apos;re ready.

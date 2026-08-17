@@ -91,6 +91,10 @@ npm run lint
   duration (see below), and for Pitch mode that real duration is handed to the grading prompt as
   objective pacing data (target vs. actual time, words/minute) so the Delivery fix can say "you ran
   12 seconds over" instead of guessing pace from word choice alone.
+- **`lib/deliveryMetrics.ts`** — words-per-minute and filler-word density (`um`, `like`, `you know`,
+  etc.), computed deterministically from real turn duration + transcript text for every mode, not
+  just Pitch. Feeds `lib/grading.ts`'s Delivery prompt as measured fact and shows as an
+  always-accurate stat line on the feedback page independent of whether grading itself succeeds.
 - **`lib/store.ts`** — file-based persistence, no database. Sessions and feedback live in
   `data/sessions/*.json` (gitignored). Swapping to a real DB later is contained to this one file.
 - **`lib/useSpeech.ts`** — browser Web Speech API wrapper. Push-to-talk-until-you're-done: the mic

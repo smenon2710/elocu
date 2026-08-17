@@ -488,13 +488,7 @@ this project's own convention (see intro) so they're pickable next session inste
   failed Groq round-trip first) and isn't visible anywhere except the logs or the in-app call-log
   page. Fix: check Groq's current model list and update `GROQ_MODEL_CONVERSATION` /
   `GROQ_MODEL_GRADING` in `.env.local` plus the code defaults.
-- **[Improvement, groundwork already laid]** `pitchTimingBlock()`'s objective words/minute pacing
-  data (§21) is currently only computed and injected for Pitch mode, even though every mode's turns
-  now carry a real duration after the §21 fix. `SECTION_DESCRIPTIONS.delivery` in `lib/grading.ts`
-  still says pace is "infer[red]... from phrasing and word choice... since no audio is available" —
-  that comment is now stale; duration doesn't require audio, just the timestamps that are already
-  real. Extending real WPM data to every mode's Delivery scoring, not just Pitch's, is probably the
-  single best-ROI improvement available (raised in conversation, not yet built).
+- ~~**[Improvement]** Extend objective WPM pacing beyond Pitch mode.~~ **Done, §23.**
 - **[Idea, not started]** Re-practice & compare — redo the same topic and see a direct before/after
   score diff, rather than only the aggregate trend line on `/app/progress`. More actionable and
   motivating than a general upward trend; the data model already groups by topic/mode, so this is
@@ -510,3 +504,43 @@ this project's own convention (see intro) so they're pickable next session inste
   other's sessions, and would let anyone spend the app's own Groq/OpenRouter API budget with no
   gating. Storage should come first (it's what actually breaks in production); auth is what makes it
   safe to share the URL at all.
+
+---
+
+## 23. Objective pace + filler-word density, for every mode
+
+Prompted by a metrics framework a user's colleague proposed — acoustic (pitch/pace/pauses/energy/
+articulation), linguistic (grammar/hedging/structure/tone), computer-vision (eye contact/expression/
+gesture/posture), plus per-mode weighting. Evaluated against what the app can actually measure today
+(`lib/useSpeech.ts` uses the browser's Web Speech API, which exposes only final text — no audio
+waveform, no per-word timestamps, no video): most of the acoustic category (vocal pitch variety, RMS
+energy, articulation, strategic-pause duration) and all of the computer-vision category need
+capturing raw audio or video, which is a real infrastructure and privacy decision, not a quick add —
+and video was already on the Phase-1 "explicitly deferred" list (see "Scope decision" above) for
+that reason. Decided to build only what's derivable from text + real turn timing, matching the
+pattern already proven in §21: compute it deterministically, hand it to the grading prompt as
+measured fact, and show it on the feedback page independent of the LLM.
+
+Added `lib/deliveryMetrics.ts`'s `computeDeliveryMetrics()`: aggregate words-per-minute across every
+user turn in a session (using the real per-turn duration from §21's fix, not just Pitch mode's
+single turn) and filler-word density from a small lexical filler list (`um`, `uh`, `like`, `you
+know`, `i mean`, etc.) — deliberately *lexical* fillers, not non-lexical ones, since ASR engines
+routinely drop "um"/"uh" from the transcript entirely rather than transcribing them, so a
+lexical-only list is what actually survives into a Web Speech API transcript. Explicitly out of
+scope for this pass (left on the backlog, not attempted): Hedging & Weak Words as its own tracked
+metric (`lib/grading.ts`'s Delivery description still covers hedging, just LLM-inferred rather than
+counted), and any acoustic/video metric.
+
+`lib/grading.ts`'s `pitchTimingBlock()` was refactored to source its word count/pace from this shared
+helper instead of computing it inline a second time; a new `deliveryMetricsBlock()` runs for every
+mode with at least one user turn, contributing pace (skipped for Pitch, which already states it via
+the time-budget framing) and filler density (every mode, including Pitch). The feedback page gained
+a `DeliveryMetrics` component mirroring `PitchTiming`'s pattern — a deterministic `"141 wpm · 6
+filler words (12.8%)"` line under the topic, accurate even if grading fails.
+
+Verified live: a conversation-mode reply seeded with six deliberate fillers ("like" x3, "you know"
+x2, "I mean" x1) over a real 20s/44-word turn produced a Delivery fix reading *"Reduce the filler
+word density from 12.8% by removing the three instances of 'like' and two instances of 'you
+know'..."* — the LLM's own fix text and the feedback page's independently-computed stat line matched
+exactly (12.8% in both places), confirming the grading prompt and the UI are reading the same real
+numbers rather than the model inventing its own estimate.

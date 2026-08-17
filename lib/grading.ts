@@ -1,5 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
+import { computeDeliveryMetrics } from "./deliveryMetrics";
 import { chatCompletion, parseJsonObject, type ModelChoice } from "./llm";
 import type { Feedback, FeedbackSection, FeedbackSections, QuotedMoment, Session } from "./types";
 
@@ -102,7 +103,7 @@ const SECTION_DESCRIPTIONS: Record<SectionKey, string> = {
   structure:
     "Clear shape to the answer (setup -> tension -> resolution), strong opening line vs. throat-clearing, landing on a clear takeaway.",
   delivery:
-    "Pace/rhythm, filler words & hedging language, use of pauses. Infer this from phrasing and word choice in the transcript text (fillers like 'um', 'like', 'I guess', repeated hedges) since no audio is available.",
+    "Pace/rhythm, filler words, hedging language, use of pauses. Objective words-per-minute pace and filler-word counts are provided separately below as measured data (not inferred) — ground the score/fix in those directly. Hedging language, rhythm, and pauses still have to be inferred from phrasing since no audio is available.",
   content: "Specificity vs. vague generality, relevance to the question asked, conciseness.",
   engagement: "Hook strength of the opening, emotional variation vs. flatness, awareness of the listener/context.",
   contextFit: "Alignment with the provided job description/resume, coverage of the provided question bank.",
@@ -138,11 +139,11 @@ function transcriptForPrompt(session: Session): string {
 }
 
 /**
- * Objective pacing data for pitch mode, grounded in the turn's real
- * startTs/endTs (see app/api/sessions/[id]/messages/route.ts — the client
- * now sends actual elapsed time instead of a same-instant double-stamp) —
- * handed to the model as fact rather than left to guess pace from word
- * choice alone, the way every other mode's Delivery score has to.
+ * Pitch mode's time-budget framing: target vs. actual seconds, grounded in
+ * the turn's real startTs/endTs (see app/api/sessions/[id]/messages/route.ts
+ * — the client sends actual elapsed time instead of a same-instant
+ * double-stamp). Word count/pace come from computeDeliveryMetrics, shared
+ * with deliveryMetricsBlock below rather than recomputed here.
  */
 function pitchTimingBlock(session: Session): string {
   if (session.mode !== "pitch" || !session.pitchTimeLimitSec) return "";
@@ -152,17 +153,52 @@ function pitchTimingBlock(session: Session): string {
   const durationSec = Math.max(0, Math.round((turn.endTs - turn.startTs) / 1000));
   const targetSec = session.pitchTimeLimitSec;
   const diff = durationSec - targetSec;
-  const wordCount = turn.text.trim().split(/\s+/).filter(Boolean).length;
-  const wpm = durationSec > 0 ? Math.round((wordCount / durationSec) * 60) : 0;
+  const { totalWords, wpm } = computeDeliveryMetrics(session);
 
   return `
 
 Objective pacing data for the Delivery section (measured, not inferred — use it
 directly rather than guessing pace from phrasing): the pitch had a ${targetSec}s
 time budget and actually ran ${durationSec}s (${diff > 0 ? `${diff}s over` : diff < 0 ? `${-diff}s under` : "right on target"}).
-Roughly ${wordCount} words at ~${wpm} words/minute (conversational speech is
-typically 130-160 wpm). Ground the Delivery fix in this — e.g. name what to cut
-if they ran over, or note if they rushed/dragged relative to a natural pace.`;
+${totalWords} words${wpm !== null ? ` at ~${wpm} words/minute (conversational speech is typically 130-160 wpm)` : ""}.
+Ground the Delivery fix in this — e.g. name what to cut if they ran over, or
+note if they rushed/dragged relative to a natural pace.`;
+}
+
+/**
+ * General-purpose delivery data for every mode, not just Pitch: aggregate
+ * words/minute across all user turns and filler-word density (see
+ * lib/deliveryMetrics.ts). Pitch mode's pace is already covered by
+ * pitchTimingBlock's target-vs-actual framing above, so this only adds pace
+ * for every other mode — but filler-word density runs everywhere, since
+ * pitchTimingBlock doesn't compute it.
+ */
+function deliveryMetricsBlock(session: Session): string {
+  if (!session.turns.some((t) => t.speaker === "user")) return "";
+
+  const { totalWords, wpm, fillerCount, fillerPct, fillerBreakdown } = computeDeliveryMetrics(session);
+  const parts: string[] = [];
+
+  if (wpm !== null && session.mode !== "pitch") {
+    parts.push(
+      `Speaking pace across the session: ~${wpm} words/minute (typical conversational pace is 130-160 wpm; faster is normal for debate).`
+    );
+  }
+
+  if (fillerPct !== null) {
+    const breakdown = fillerBreakdown.map(([w, c]) => `"${w}" x${c}`).join(", ");
+    parts.push(
+      `Filler word count: ${fillerCount} across ${totalWords} words (${fillerPct.toFixed(1)}%)${breakdown ? ` — ${breakdown}` : ""}.`
+    );
+  }
+
+  if (parts.length === 0) return "";
+  return `
+
+Objective delivery data for the Delivery section (measured, not inferred —
+ground the score/fix in this rather than guessing pace or filler use from
+phrasing alone):
+${parts.join("\n")}`;
 }
 
 function fallbackSection(): FeedbackSection {
@@ -221,6 +257,7 @@ USER's turns should be scored — the AI turns are context for what was asked.
 Transcript (each line prefixed with its turn index in brackets):
 ${transcriptForPrompt(session)}
 ${pitchTimingBlock(session)}
+${deliveryMetricsBlock(session)}
 
 Score the USER's performance on each section below, on an integer scale of 1
 (needs significant work) to 5 (excellent). For each section, quote exactly one
