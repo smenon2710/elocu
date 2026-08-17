@@ -725,3 +725,11 @@ the tooltip's transform just enough to stay within a 12px margin of the viewport
 previously-broken cases (first metric, third metric) at 390px width — both now render fully on-screen
 — plus confirmed keyboard focus (not just mouse hover) also triggers the tooltip, satisfying the
 "visible keyboard focus" accessibility bar the rest of the app already holds to.
+
+Followed up immediately after: the `PitchTiming` line ("Delivered in 0:26 / 1:30 — 64s under") had
+no tooltip yet — it predates `Metric` and its content (a colored timing span, not plain text) didn't
+fit `Metric`'s original `children: string` prop. Generalized to `children: ReactNode` (a genuinely
+useful widening, not scope creep — the same component now covers a richer trigger without a second
+implementation) and added a tooltip grounded in the elevator-pitch convention itself: 30–60s for a
+cold pitch, 45–60s+ with more context, and an explicit note that running *under* budget isn't
+automatically better — it can mean the value prop or the ask got left out.

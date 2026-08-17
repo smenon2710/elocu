@@ -25,6 +25,8 @@ function formatClock(ms: number): string {
 }
 
 const METRIC_TOOLTIPS = {
+  pitchTiming:
+    "The name comes from fitting a pitch inside a short elevator ride — 30–60s is the common convention for a cold pitch, sometimes 45–60s+ with more context (e.g. an interview). Running under your budget isn't automatically better either: it can mean you left out the value prop or the ask. The goal is landing the full shape — hook, value, ask — inside the time you chose.",
   wpm: "Words per minute. Comprehension research (Univ. of Michigan; Univ. of Missouri) points to ~150–160 wpm as the clearest pace to listen to — noticeably faster measurably hurts comprehension. Slower (130–140) suits dense material; faster (150–165) suits persuasive contexts like debate.",
   filler:
     "Vocalized fillers like \"um\" and \"like.\" Occasional ones are natural and rarely hurt you — a high density is what tends to read as unprepared. There's no universal target; fewer is simply better.",
@@ -57,10 +59,12 @@ function PitchTiming({ session }: { session: Session }) {
   return (
     <p className="mt-3 font-mono text-sm text-parchment-500">
       Delivered in{" "}
-      <span className={tone}>
-        {formatClock(actualMs)} / {formatClock(targetMs)}
-      </span>{" "}
-      — {note}
+      <Metric tooltip={METRIC_TOOLTIPS.pitchTiming}>
+        <span className={tone}>
+          {formatClock(actualMs)} / {formatClock(targetMs)}
+        </span>{" "}
+        — {note}
+      </Metric>
     </p>
   );
 }

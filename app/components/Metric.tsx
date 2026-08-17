@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 
 const TOOLTIP_WIDTH = 208; // px, matches w-52
 const VIEWPORT_MARGIN = 12; // px, keeps the box off the screen edge
@@ -18,7 +18,7 @@ const VIEWPORT_MARGIN = 12; // px, keeps the box off the screen edge
  * just enough to stay on-screen, rather than a fixed CSS anchor that's only
  * correct for some trigger positions.
  */
-export function Metric({ children, tooltip }: { children: string; tooltip: string }) {
+export function Metric({ children, tooltip }: { children: ReactNode; tooltip: string }) {
   const triggerRef = useRef<HTMLSpanElement>(null);
   const [shift, setShift] = useState(0);
 
