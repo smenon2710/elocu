@@ -7,6 +7,7 @@ export const MODE_LABELS: Record<SessionMode, string> = {
   speech: "Speech",
   orator: "Orator",
   debate: "Debate",
+  pitch: "Pitch",
 };
 
 const SECTION_LABELS: Record<string, string> = {

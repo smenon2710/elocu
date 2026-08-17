@@ -1,18 +1,34 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+const NAV_LINKS = [
+  { href: "/app/progress", label: "Progress" },
+  { href: "/app", label: "New session" },
+];
 
 export function Header() {
+  const pathname = usePathname();
+
   return (
-    <header className="flex shrink-0 items-center justify-between border-b bg-white px-4 py-3 sm:px-6">
-      <Link href="/" className="text-lg font-semibold text-gray-900">
+    <header className="flex shrink-0 items-center justify-between border-b border-hairline bg-ink-900 px-4 py-3 sm:px-6">
+      <Link href="/" className="font-display text-lg text-parchment-100 transition hover:text-ember-400">
         Elocu
       </Link>
-      <nav className="flex items-center gap-4 text-sm">
-        <Link href="/app/progress" className="text-gray-600 hover:text-gray-900">
-          Progress
-        </Link>
-        <Link href="/app" className="text-gray-600 hover:text-gray-900">
-          New session
-        </Link>
+      <nav className="flex items-center gap-5 font-mono text-xs tracking-[0.15em] uppercase">
+        {NAV_LINKS.map((link) => {
+          const active = pathname === link.href;
+          return (
+            <Link
+              key={link.href}
+              href={link.href}
+              className={`transition ${active ? "text-ember-400" : "text-parchment-500 hover:text-verdigris-400"}`}
+            >
+              {link.label}
+            </Link>
+          );
+        })}
       </nav>
     </header>
   );

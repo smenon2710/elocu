@@ -46,19 +46,19 @@ function SingleDocInput({
   }
 
   return (
-    <div className="mt-2 rounded-lg border border-dashed p-3">
-      <div className="flex gap-2 text-xs">
+    <div className="mt-2 rounded-lg border border-dashed border-hairline p-3">
+      <div className="flex gap-3 font-mono text-xs">
         <button
           type="button"
           onClick={() => setMode("paste")}
-          className={mode === "paste" ? "font-semibold underline" : "text-gray-500"}
+          className={mode === "paste" ? "text-ember-400 underline underline-offset-2" : "text-parchment-500"}
         >
           Paste
         </button>
         <button
           type="button"
           onClick={() => setMode("file")}
-          className={mode === "file" ? "font-semibold underline" : "text-gray-500"}
+          className={mode === "file" ? "text-ember-400 underline underline-offset-2" : "text-parchment-500"}
         >
           Upload
         </button>
@@ -67,7 +67,7 @@ function SingleDocInput({
       {mode === "paste" ? (
         <div className="mt-2 space-y-2">
           <textarea
-            className="w-full rounded border p-2 text-sm"
+            className="w-full rounded border border-hairline bg-ink-900 p-2 text-sm text-parchment-100 placeholder:text-parchment-500/60 focus:border-ember-500"
             rows={3}
             placeholder={`Paste ${label.toLowerCase()} text…`}
             value={text}
@@ -77,7 +77,7 @@ function SingleDocInput({
             type="button"
             onClick={commitPaste}
             disabled={!text.trim()}
-            className="rounded-full border px-3 py-1 text-xs disabled:opacity-50"
+            className="rounded-full border border-hairline px-3 py-1 font-mono text-xs text-parchment-300 transition hover:border-verdigris-500/60 disabled:opacity-40"
           >
             Add
           </button>
@@ -87,16 +87,17 @@ function SingleDocInput({
           <input
             type="file"
             accept=".txt,.pdf"
+            className="font-mono text-xs text-parchment-500 file:mr-3 file:rounded-full file:border file:border-hairline file:bg-ink-900 file:px-3 file:py-1 file:text-parchment-300"
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) handleFile(file);
               e.target.value = "";
             }}
           />
-          {uploading && <p className="mt-1 text-xs text-gray-500">Processing…</p>}
+          {uploading && <p className="mt-1 font-mono text-xs text-parchment-500">Processing…</p>}
         </div>
       )}
-      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+      {error && <p className="mt-1 text-xs text-rust-400">{error}</p>}
     </div>
   );
 }
@@ -127,14 +128,14 @@ export function DocSlot({
   }
 
   return (
-    <div className="rounded-lg border p-3">
+    <div className="rounded-lg border border-hairline bg-ink-800 p-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium">{label}</span>
+        <span className="text-sm font-medium text-parchment-100">{label}</span>
         {!adding && (
           <button
             type="button"
             onClick={() => setAdding(true)}
-            className="text-xs text-blue-600 underline"
+            className="font-mono text-xs text-ember-400 underline decoration-ember-500/40 underline-offset-2 hover:text-ember-300"
           >
             + Add{docs.length > 0 ? " another" : ""}
           </button>
@@ -146,13 +147,13 @@ export function DocSlot({
           {docs.map((d) => (
             <li
               key={d.id}
-              className="flex items-center justify-between rounded bg-gray-50 px-2 py-1 text-xs text-gray-700"
+              className="flex items-center justify-between rounded bg-ink-900 px-2 py-1 text-xs text-parchment-300"
             >
               <span className="truncate">{d.filename}</span>
               <button
                 type="button"
                 onClick={() => removeDoc(d.id)}
-                className="ml-2 text-gray-400 hover:text-red-600"
+                className="ml-2 text-parchment-500 hover:text-rust-400"
               >
                 Remove
               </button>

@@ -17,7 +17,7 @@ export interface DocumentRef {
   text: string;
 }
 
-export type SessionMode = "interview" | "conversation" | "speech" | "orator" | "debate";
+export type SessionMode = "interview" | "conversation" | "speech" | "orator" | "debate" | "pitch";
 
 export interface Session {
   id: string;
@@ -29,6 +29,8 @@ export interface Session {
   documentsUsed: boolean;
   documentRefs: DocumentRef[];
   turns: TranscriptTurn[];
+  /** Only meaningful for `pitch` mode — the time budget (seconds) picked at start. Null for every other mode. */
+  pitchTimeLimitSec: number | null;
 }
 
 export interface QuotedMoment {
@@ -62,8 +64,8 @@ export interface Feedback {
 
 export const LOCAL_USER_ID = "local-user";
 
-// Speech/Orator are single-round by design: one AI prompt, one (possibly
-// long) user turn, one brief AI reaction, then auto-end. Interview/
+// Speech/Orator/Pitch are single-round by design: one AI prompt, one
+// (possibly long) user turn, one brief AI reaction, then auto-end. Interview/
 // Conversation/Debate are open-ended back-and-forth up to this many turns.
 export const MAX_EXCHANGES_BY_MODE: Record<SessionMode, number> = {
   interview: 12,
@@ -71,4 +73,11 @@ export const MAX_EXCHANGES_BY_MODE: Record<SessionMode, number> = {
   debate: 12,
   speech: 1,
   orator: 1,
+  pitch: 1,
 };
+
+// The only durations a pitch's time budget can be — validated against on the
+// server (app/api/sessions/route.ts) and offered as the picker's choices in
+// the mode selector (app/(app)/app/page.tsx).
+export const PITCH_TIME_LIMITS_SEC = [30, 60, 90, 180] as const;
+export const DEFAULT_PITCH_TIME_LIMIT_SEC = 90;

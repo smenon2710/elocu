@@ -12,8 +12,8 @@ const LABEL_TITLES: Record<string, string> = {
 function StatusBadge({ ok }: { ok: boolean }) {
   return (
     <span
-      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-        ok ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+      className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-medium tracking-wide uppercase ${
+        ok ? "bg-verdigris-500/15 text-verdigris-400" : "bg-rust-500/15 text-rust-400"
       }`}
     >
       {ok ? "ok" : "failed"}
@@ -38,11 +38,11 @@ export default async function SessionLogsPage({ params }: { params: Promise<{ id
 
   return (
     <main className="mx-auto max-w-3xl p-8">
-      <h1 className="text-2xl font-semibold">Call log</h1>
-      <p className="mt-1 text-gray-600">Topic: {session.topic}</p>
+      <p className="font-mono text-xs tracking-[0.25em] text-verdigris-400 uppercase">Call log</p>
+      <h1 className="mt-2 font-display text-3xl text-parchment-100">{session.topic}</h1>
 
-      <div className="mt-4 rounded-lg bg-gray-50 p-3 text-sm text-gray-600">
-        <span className="font-medium">Speech capture: </span>
+      <div className="mt-4 rounded-lg border border-hairline bg-ink-800 p-3 font-mono text-xs leading-relaxed text-parchment-500">
+        <span className="text-parchment-300">Speech capture: </span>
         your browser&apos;s built-in Speech Recognition (Web Speech API) converts spoken input to
         text entirely on your device — it never goes through our servers, so there&apos;s nothing
         to log there. Everything below is what happened once your (spoken or typed) text left your
@@ -50,25 +50,25 @@ export default async function SessionLogsPage({ params }: { params: Promise<{ id
       </div>
 
       {calls.length === 0 && (
-        <p className="mt-6 text-sm text-gray-400">No LLM calls logged for this session yet.</p>
+        <p className="mt-6 font-mono text-sm text-parchment-500/70">No LLM calls logged for this session yet.</p>
       )}
 
       {Object.entries(grouped).map(([label, entries]) => (
         <section key={label} className="mt-6">
-          <h2 className="font-medium text-gray-900">{LABEL_TITLES[label] ?? label}</h2>
+          <h2 className="font-display text-lg text-parchment-100">{LABEL_TITLES[label] ?? label}</h2>
           <div className="mt-2 space-y-2">
             {entries.map((c, i) => (
-              <div key={i} className="rounded-lg border p-3 text-sm">
+              <div key={i} className="rounded-lg border border-hairline bg-ink-800 p-3 font-mono text-sm">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium text-gray-800">{c.provider}</span>
-                  <span className="text-gray-400">·</span>
-                  <span className="text-gray-600">{c.model}</span>
+                  <span className="text-parchment-100">{c.provider}</span>
+                  <span className="text-parchment-500">·</span>
+                  <span className="text-parchment-500">{c.model}</span>
                   <StatusBadge ok={c.ok} />
                 </div>
-                <p className="mt-1 text-xs text-gray-400">
+                <p className="mt-1 text-xs text-parchment-500/70">
                   {new Date(c.ts).toLocaleString()} · {c.durationMs}ms
                 </p>
-                {c.error && <p className="mt-1 text-xs text-red-600">{c.error}</p>}
+                {c.error && <p className="mt-1 text-xs text-rust-400">{c.error}</p>}
               </div>
             ))}
           </div>
@@ -77,18 +77,18 @@ export default async function SessionLogsPage({ params }: { params: Promise<{ id
 
       {parseFailures.length > 0 && (
         <section className="mt-6">
-          <h2 className="font-medium text-gray-900">Grading parse failures</h2>
-          <p className="mt-1 text-xs text-gray-500">
+          <h2 className="font-display text-lg text-parchment-100">Grading parse failures</h2>
+          <p className="mt-1 text-xs text-parchment-500">
             The call above succeeded, but the response couldn&apos;t be parsed into the expected
             format — this is why grading fell back to a retry or placeholder scores.
           </p>
           <div className="mt-2 space-y-2">
             {parseFailures.map((f, i) => (
-              <details key={i} className="rounded-lg border p-3 text-sm">
-                <summary className="cursor-pointer font-medium text-gray-800">
+              <details key={i} className="rounded-lg border border-hairline bg-ink-800 p-3 font-mono text-sm">
+                <summary className="cursor-pointer text-parchment-100">
                   {new Date(f.ts).toLocaleString()} — {f.reason}
                 </summary>
-                <pre className="mt-2 max-h-64 overflow-auto rounded bg-gray-50 p-2 text-xs whitespace-pre-wrap">
+                <pre className="mt-2 max-h-64 overflow-auto rounded bg-ink-900 p-2 text-xs whitespace-pre-wrap text-parchment-500">
                   {f.raw}
                 </pre>
               </details>
@@ -97,7 +97,10 @@ export default async function SessionLogsPage({ params }: { params: Promise<{ id
         </section>
       )}
 
-      <Link href={`/session/${id}/feedback`} className="mt-8 inline-block text-blue-600 underline">
+      <Link
+        href={`/session/${id}/feedback`}
+        className="mt-8 inline-block font-mono text-xs tracking-wide text-verdigris-400 uppercase underline decoration-verdigris-500/40 underline-offset-2 hover:text-verdigris-300"
+      >
         Back to feedback
       </Link>
     </main>

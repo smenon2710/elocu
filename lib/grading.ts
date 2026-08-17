@@ -137,6 +137,34 @@ function transcriptForPrompt(session: Session): string {
     .join("\n");
 }
 
+/**
+ * Objective pacing data for pitch mode, grounded in the turn's real
+ * startTs/endTs (see app/api/sessions/[id]/messages/route.ts — the client
+ * now sends actual elapsed time instead of a same-instant double-stamp) —
+ * handed to the model as fact rather than left to guess pace from word
+ * choice alone, the way every other mode's Delivery score has to.
+ */
+function pitchTimingBlock(session: Session): string {
+  if (session.mode !== "pitch" || !session.pitchTimeLimitSec) return "";
+  const turn = session.turns.find((t) => t.speaker === "user");
+  if (!turn) return "";
+
+  const durationSec = Math.max(0, Math.round((turn.endTs - turn.startTs) / 1000));
+  const targetSec = session.pitchTimeLimitSec;
+  const diff = durationSec - targetSec;
+  const wordCount = turn.text.trim().split(/\s+/).filter(Boolean).length;
+  const wpm = durationSec > 0 ? Math.round((wordCount / durationSec) * 60) : 0;
+
+  return `
+
+Objective pacing data for the Delivery section (measured, not inferred — use it
+directly rather than guessing pace from phrasing): the pitch had a ${targetSec}s
+time budget and actually ran ${durationSec}s (${diff > 0 ? `${diff}s over` : diff < 0 ? `${-diff}s under` : "right on target"}).
+Roughly ${wordCount} words at ~${wpm} words/minute (conversational speech is
+typically 130-160 wpm). Ground the Delivery fix in this — e.g. name what to cut
+if they ran over, or note if they rushed/dragged relative to a natural pace.`;
+}
+
 function fallbackSection(): FeedbackSection {
   return {
     score: 3,
@@ -192,6 +220,7 @@ USER's turns should be scored — the AI turns are context for what was asked.
 
 Transcript (each line prefixed with its turn index in brackets):
 ${transcriptForPrompt(session)}
+${pitchTimingBlock(session)}
 
 Score the USER's performance on each section below, on an integer scale of 1
 (needs significant work) to 5 (excellent). For each section, quote exactly one

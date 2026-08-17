@@ -2,9 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { listSessions, saveSession } from "@/lib/store";
 import { getNextInterviewerMessage } from "@/lib/conversation";
-import { LOCAL_USER_ID, type DocumentRef, type Session, type SessionMode } from "@/lib/types";
+import {
+  DEFAULT_PITCH_TIME_LIMIT_SEC,
+  LOCAL_USER_ID,
+  PITCH_TIME_LIMITS_SEC,
+  type DocumentRef,
+  type Session,
+  type SessionMode,
+} from "@/lib/types";
 
-const VALID_MODES: SessionMode[] = ["interview", "conversation", "speech", "orator", "debate"];
+const VALID_MODES: SessionMode[] = ["interview", "conversation", "speech", "orator", "debate", "pitch"];
 
 export async function GET() {
   const sessions = await listSessions();
@@ -23,6 +30,15 @@ export async function POST(req: NextRequest) {
   }
   const documentRefs: DocumentRef[] = Array.isArray(body?.documentRefs) ? body.documentRefs : [];
 
+  // Only pitch mode has a time budget; anything else stays null rather than
+  // silently accepting a stray value from the client for a mode it doesn't apply to.
+  const pitchTimeLimitSec: number | null =
+    mode === "pitch"
+      ? PITCH_TIME_LIMITS_SEC.includes(body?.pitchTimeLimitSec)
+        ? body.pitchTimeLimitSec
+        : DEFAULT_PITCH_TIME_LIMIT_SEC
+      : null;
+
   const session: Session = {
     id: randomUUID(),
     userId: LOCAL_USER_ID,
@@ -33,6 +49,7 @@ export async function POST(req: NextRequest) {
     documentsUsed: documentRefs.length > 0,
     documentRefs,
     turns: [],
+    pitchTimeLimitSec,
   };
 
   let openingError: string | null = null;

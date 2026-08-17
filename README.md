@@ -22,6 +22,7 @@ they are, bugs found along the way, and what was tried and rejected). This READM
 | **Debate** | State a position — the AI argues the *opposing* side with real counterarguments |
 | **Speech** | Deliver a prepared talk; the AI stays silent, then gives one brief reaction |
 | **Orator** | Impromptu persuasive speaking; leave the topic blank for a surprise prompt |
+| **Pitch** | Elevator pitch against a real countdown (30s/60s/90s/3min); feedback is grounded in your actual delivery time, not guesswork |
 
 Interview mode is the only one with document upload (job description / resume / question list,
 multiple per category, paste or file) — attach as many as you want, it folds them all into the
@@ -86,11 +87,20 @@ npm run lint
   can afford to be more careful.
 - **`lib/grading.ts`** — rubric-driven structured JSON output, with `validateQuotedMoment()`
   guarding against a model quoting the wrong speaker (verified this happens in practice — the
-  guard strips just the bad quote, keeps the score/fix).
+  guard strips just the bad quote, keeps the score/fix). Every turn now carries its *real* elapsed
+  duration (see below), and for Pitch mode that real duration is handed to the grading prompt as
+  objective pacing data (target vs. actual time, words/minute) so the Delivery fix can say "you ran
+  12 seconds over" instead of guessing pace from word choice alone.
 - **`lib/store.ts`** — file-based persistence, no database. Sessions and feedback live in
   `data/sessions/*.json` (gitignored). Swapping to a real DB later is contained to this one file.
 - **`lib/useSpeech.ts`** — browser Web Speech API wrapper. Push-to-talk-until-you're-done: the mic
   stays open across pauses (not silence-triggered), tapping it again is how you signal "I'm done."
+- **Turn duration is real, not a same-instant double timestamp.** The session page
+  (`app/(app)/session/[id]/page.tsx`) tracks the moment the floor becomes the user's — a mic tap, or
+  the AI's previous line finishing — and sends the real elapsed time to
+  `POST /api/sessions/[id]/messages`, which stamps the turn's `startTs`/`endTs` from it instead of
+  calling `Date.now()` twice back to back. This is what makes Pitch mode's live countdown and its
+  grading feedback honest, and it applies to every mode, not just Pitch.
 - **Sessions can be paused** (`/api/sessions/[id]/pause`) to get feedback on the conversation so
   far without ending it — the session stays resumable, unlike `/api/sessions/[id]/end` (permanent).
 - **History sidebar** (`app/components/HistorySidebar.tsx`) lists every session, in-progress and

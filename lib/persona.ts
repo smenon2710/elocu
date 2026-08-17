@@ -1,4 +1,4 @@
-import type { DocumentRef, SessionMode } from "./types";
+import { DEFAULT_PITCH_TIME_LIMIT_SEC, type DocumentRef, type SessionMode } from "./types";
 
 const CONVERSATION_FEEL = `
 This is a real, live conversation, not a form to fill out. Ask genuine follow-up
@@ -110,6 +110,30 @@ summarizing what their talk is about back to them.
 `.trim();
 }
 
+function formatTimeLimit(sec: number): string {
+  if (sec < 60) return `${sec} seconds`;
+  if (sec % 60 === 0) return `${sec / 60} minute${sec === 60 ? "" : "s"}`;
+  return `${Math.floor(sec / 60)}m ${sec % 60}s`;
+}
+
+function buildPitchPersona(topic: string, timeLimitSec: number): string {
+  const limit = formatTimeLimit(timeLimitSec);
+  return `
+Someone wants to practice an elevator pitch: "${topic}"
+
+They have a hard time budget of ${limit}. A real elevator pitch lives or dies on
+whether it lands a hook, the core value/ask, and a clear close inside that window
+— coach toward that shape implicitly through your one reaction afterward, not by
+lecturing before they start.
+
+${MONOLOGUE_FEEL}
+
+Open by stating their time budget in one short sentence (e.g. "You've got ${limit}.
+Whenever you're ready, go.") — no summarizing the topic back to them, no other
+preamble.
+`.trim();
+}
+
 function buildOratorPersona(topic: string): string {
   const topicLine = topic
     ? `The topic to speak persuasively on: "${topic}"`
@@ -134,7 +158,12 @@ whenever they're ready.
  * naturally Interview. Same engine, different prompt per plan.md's
  * two-layer design, now generalized across five modes instead of one.
  */
-export function buildPersona(mode: SessionMode, topic: string, documentRefs: DocumentRef[]): string {
+export function buildPersona(
+  mode: SessionMode,
+  topic: string,
+  documentRefs: DocumentRef[],
+  pitchTimeLimitSec?: number | null
+): string {
   switch (mode) {
     case "interview":
       return buildInterviewPersona(topic, documentRefs);
@@ -146,5 +175,7 @@ export function buildPersona(mode: SessionMode, topic: string, documentRefs: Doc
       return buildSpeechPersona(topic);
     case "orator":
       return buildOratorPersona(topic);
+    case "pitch":
+      return buildPitchPersona(topic, pitchTimeLimitSec ?? DEFAULT_PITCH_TIME_LIMIT_SEC);
   }
 }

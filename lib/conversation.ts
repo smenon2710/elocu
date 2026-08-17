@@ -33,7 +33,7 @@ const CONVERSATION_FALLBACKS: ModelChoice[] = [
  * transcript plus persona system prompt is the only state passed on every turn.
  */
 export async function getNextInterviewerMessage(session: Session): Promise<string> {
-  const systemPrompt = buildPersona(session.mode, session.topic, session.documentRefs);
+  const systemPrompt = buildPersona(session.mode, session.topic, session.documentRefs, session.pitchTimeLimitSec);
 
   const messages: ChatMessage[] = [{ role: "system", content: systemPrompt }];
 

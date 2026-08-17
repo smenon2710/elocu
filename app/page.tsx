@@ -31,6 +31,11 @@ const MODES = [
     description: "No topic? We'll hand you one.",
     example: "Persuade me cities should ban cars downtown.",
   },
+  {
+    name: "Pitch",
+    description: "One shot, the clock's running.",
+    example: "You've got 60 seconds. Whenever you're ready, go.",
+  },
 ];
 
 function StartButton({ className = "" }: { className?: string }) {
@@ -95,7 +100,7 @@ export default function LandingPage() {
       <section className="border-t border-white/10 bg-[#1A1826] px-6 py-20">
         <div className="mx-auto max-w-4xl">
           <h2 className={`${plexMono.className} text-center text-xs tracking-[0.25em] text-[#6f9d94] uppercase`}>
-            Five rooms to practice in
+            Six rooms to practice in
           </h2>
           <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {MODES.map((m) => (

@@ -16,20 +16,20 @@ export function CategoryBarChart({ data, max = 5 }: { data: CategoryAverage[]; m
     <div className="space-y-3">
       {data.map((d) => (
         <div key={d.key} className="group flex items-center gap-3">
-          <span className="w-28 shrink-0 truncate text-sm text-gray-600">{d.label}</span>
-          <div className="relative h-3 flex-1 rounded-full bg-gray-100">
+          <span className="w-28 shrink-0 truncate text-sm text-parchment-500">{d.label}</span>
+          <div className="relative h-3 flex-1 rounded-full bg-ink-900">
             <div
-              className="absolute inset-y-0 left-0 rounded-full bg-blue-600"
+              className="absolute inset-y-0 left-0 rounded-full bg-ember-500"
               style={{ width: `${Math.max((d.average / max) * 100, 4)}%` }}
             />
           </div>
           <span
-            className="w-10 shrink-0 text-right text-sm font-medium text-gray-900"
+            className="w-10 shrink-0 text-right font-mono text-sm text-parchment-100"
             style={{ fontVariantNumeric: "tabular-nums" }}
           >
             {d.average.toFixed(1)}
           </span>
-          <span className="w-16 shrink-0 text-xs text-gray-400 opacity-0 transition-opacity group-hover:opacity-100">
+          <span className="w-16 shrink-0 font-mono text-xs text-parchment-500/70 opacity-0 transition-opacity group-hover:opacity-100">
             {d.count} sess.
           </span>
         </div>

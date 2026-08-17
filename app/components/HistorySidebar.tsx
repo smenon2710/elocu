@@ -22,6 +22,7 @@ const MODE_LABELS: Record<SessionMode, string> = {
   speech: "Speech",
   orator: "Orator",
   debate: "Debate",
+  pitch: "Pitch",
 };
 
 function relativeTime(ts: number): string {
@@ -55,10 +56,12 @@ export function HistorySidebar() {
   }
 
   return (
-    <aside className="hidden w-64 shrink-0 flex-col border-r bg-gray-50 p-4 sm:flex">
-      <p className="mb-2 text-xs font-medium tracking-wide text-gray-400 uppercase">History</p>
-      <div className="flex-1 space-y-1 overflow-y-auto">
-        {sessions.length === 0 && <p className="text-xs text-gray-400">No sessions yet</p>}
+    <aside className="hidden w-64 shrink-0 flex-col border-r border-hairline bg-ink-900 p-4 sm:flex">
+      <p className="mb-3 font-mono text-[11px] tracking-[0.2em] text-verdigris-400 uppercase">History</p>
+      <div className="flex-1 space-y-0.5 overflow-y-auto">
+        {sessions.length === 0 && (
+          <p className="font-mono text-xs text-parchment-500">No sessions yet</p>
+        )}
         {sessions.map((s) => {
           const live = s.endedAt === null;
           const href = live ? `/session/${s.id}` : `/session/${s.id}/feedback`;
@@ -67,28 +70,33 @@ export function HistorySidebar() {
           return (
             <div
               key={s.id}
-              className={`group flex items-start justify-between gap-1 rounded-lg px-2 py-1.5 ${
-                active ? "bg-blue-100" : "hover:bg-gray-100"
+              className={`group relative flex items-start justify-between gap-1 rounded-lg py-2 pr-1 pl-3 transition ${
+                active ? "bg-ink-800" : "hover:bg-ink-800/60"
               }`}
             >
+              {active && <span className="absolute top-2 bottom-2 left-0 w-0.5 rounded-full bg-ember-500" />}
               <div className="min-w-0 flex-1">
                 <Link href={href}>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-sm font-medium text-gray-800">
+                    <span className="truncate text-sm text-parchment-100">
                       {s.topic || "(impromptu)"}
                     </span>
-                    <span className={`shrink-0 text-[10px] ${live ? "text-green-600" : "text-gray-400"}`}>
+                    <span
+                      className={`shrink-0 font-mono text-[10px] tracking-wide uppercase ${
+                        live ? (paused ? "text-gold-500" : "text-ember-400") : "text-parchment-500"
+                      }`}
+                    >
                       {live ? (paused ? "paused" : "live") : "done"}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-400">
+                  <p className="mt-0.5 font-mono text-[11px] text-parchment-500">
                     {MODE_LABELS[s.mode]} · {relativeTime(s.createdAt)}
                   </p>
                 </Link>
                 {paused && (
                   <Link
                     href={`/session/${s.id}/feedback`}
-                    className="text-xs text-blue-600 underline"
+                    className="font-mono text-[11px] text-verdigris-400 underline decoration-verdigris-500/40 underline-offset-2 hover:text-verdigris-300"
                   >
                     view feedback
                   </Link>
@@ -97,7 +105,7 @@ export function HistorySidebar() {
               <button
                 type="button"
                 onClick={() => discard(s.id)}
-                className="shrink-0 px-1 text-gray-300 opacity-0 group-hover:opacity-100 hover:text-red-600"
+                className="shrink-0 px-1 text-parchment-500/60 opacity-0 transition group-hover:opacity-100 hover:text-rust-400"
                 aria-label="Discard session"
               >
                 ×

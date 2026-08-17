@@ -402,3 +402,111 @@ Verified against real accumulated usage data (5 graded sessions, no synthetic da
 trend line, and both bar breakdowns all cross-checked against the raw JSON to confirm the
 aggregation matches, hover tooltip interaction confirmed live, and the Header gained a persistent
 "Progress" nav link alongside "New session".
+
+---
+
+## 20. App-wide facelift — bringing `/app` into the landing page's visual world
+
+The landing page (§18) had a deliberate, distinctive identity (ink/parchment/ember/verdigris,
+Fraunces + Plex Mono + Inter). The app itself (`/app` and everything under it) never got that
+treatment — it was still generic Tailwind defaults (white background, `blue-600`, Geist), which
+read as templated next to the landing page precisely because it was the untouched scaffold every
+Next.js app starts from. Fixed by extending the landing page's token system into `app/globals.css`
+as named Tailwind v4 theme colors/fonts (`ink-950`/`ember-500`/`font-display` etc.) and reusing it
+across every app screen, rather than inventing a second identity for the tool half of the product.
+
+A few choices were deliberate rather than mechanical recoloring:
+
+- **Mode selector**: pill buttons became a card grid, and each card's one-line tagline is pulled
+  verbatim from the landing page's "rooms to practice in" section — the line that sold a mode on
+  the way in is now the line that labels the room once you're in it.
+- **Live session**: chat bubbles became a literal transcript (`YOU`/`ELOCU` mono labels in
+  ember/verdigris), styled to match the landing page's own animated hero demo — the marketing
+  page's demo is now what the product actually looks like, not just a preview of it.
+- **Feedback page**: score bars and the quoted-moment blockquote now match the landing page's
+  "what you get back" preview section's styling exactly, closing the loop between the pitch and the
+  product.
+- A real bug surfaced and fixed in the process: the empty-transcript/grading-failed banners used
+  light-mode colors (`bg-blue-50`, `bg-yellow-50`) that would have rendered as jarring white boxes
+  on the new dark background — replaced with translucent tinted panels.
+
+One committed dark identity, not a system `prefers-color-scheme` toggle — consistent with the
+landing page's own choice. A global `:focus-visible` rule (ember outline) covers keyboard focus
+app-wide without per-element utility classes. Verified with `tsc --noEmit`, `eslint`, and Playwright
+screenshots (desktop + mobile) across every app screen plus a landing-page regression check.
+
+---
+
+## 21. Elevator Pitch mode, and fixing turn duration to be real
+
+Requested directly: an elevator-pitch practice mode (30s/60s/90s/3min). Shape-wise it's nearly
+identical to Speech/Orator — one AI prompt, one monologue turn, the AI silent throughout, one brief
+reaction, then auto-end (`MAX_EXCHANGES_BY_MODE.pitch = 1`) — so it didn't need a new engine, just a
+time-budget concept layered on top: a picker on the mode selector (`PITCH_TIME_LIMITS_SEC` = 30/60/
+90/180, default 90), stored on the session as `pitchTimeLimitSec`, and stated by the AI in its
+opening line ("You've got 90 seconds. Whenever you're ready, go.") rather than lectured beforehand.
+
+**The real find while building it**: an elevator pitch is fundamentally about fitting inside a time
+window, but `TranscriptTurn.startTs`/`endTs` — despite existing in the schema since Phase 1 — were
+never real. `POST /api/sessions/[id]/messages` called `Date.now()` twice back to back for both
+fields, so no turn, in any mode, ever had a real duration. Fixed by having the client
+(`app/(app)/session/[id]/page.tsx`) track the actual moment the floor becomes the user's — a mic
+tap, or the AI's previous line finishing being spoken — through to submit, and send that as
+`elapsedMs`; the server now derives `startTs`/`endTs` from it (clamped to a 30-minute ceiling against
+clock skew or a stale ref). This fix isn't pitch-specific — every mode's turns now carry a real
+duration, which is a precondition for ever giving honest Delivery/pacing feedback anywhere in the
+app, not just here (see backlog, §22).
+
+For Pitch mode specifically, that real duration feeds `lib/grading.ts`'s `pitchTimingBlock()`:
+target vs. actual seconds, word count, words/minute, handed to the grading prompt as measured fact
+rather than left for the model to infer from phrasing alone. Verified live against Groq/OpenRouter:
+a 72-second delivery against a 60-second budget produced a Delivery fix reading *"You ran 12 seconds
+over the 60s limit; remove the phrase '...' to bring your pace closer to the target 130-160 wpm"* —
+grounded in the exact real numbers, not a guess. The feedback page also shows a deterministic timing
+line ("Delivered in 1:12 / 1:00 — 12s over") computed directly from the session's timestamps rather
+than the LLM's output, so it stays accurate even on a `gradingFailed` fallback.
+
+The live session UI shows a running clock during the user's turn (`0:47 / 1:30`, turning rust-red
+past budget) — never force-cuts the user off, only signals, consistent with §9's "never interrupt a
+monologue" decision for Speech/Orator. Landing page (§18) updated to six rooms; the Pitch card
+reuses the same tagline as the in-app mode selector and quotes the real persona opening line.
+
+---
+
+## 22. Known issues / backlog for next session
+
+Identified while building §20–21 but deliberately not fixed in the same pass — recorded here per
+this project's own convention (see intro) so they're pickable next session instead of getting lost.
+
+- **[Bug, live and currently active as of 2026-08-17]** Groq's `llama-3.1-8b-instant` — the model
+  `.env.local` and the code defaults in `lib/conversation.ts`/`lib/grading.ts` both pin as primary
+  for *both* conversation and grading (§13) — now 404s with `model_not_found` on every single call.
+  Confirmed in `data/logs/llm-2026-08-17.jsonl`: every Groq call logged today failed with this exact
+  error, for both the `conversation` and `grading` labels. The app still works — `chatCompletion`'s
+  fallback chain (§15) catches it and falls through to OpenRouter/Gemma every time — but this
+  silently defeats the entire "Groq primary for speed" rationale from §13 (every call now pays for a
+  failed Groq round-trip first) and isn't visible anywhere except the logs or the in-app call-log
+  page. Fix: check Groq's current model list and update `GROQ_MODEL_CONVERSATION` /
+  `GROQ_MODEL_GRADING` in `.env.local` plus the code defaults.
+- **[Improvement, groundwork already laid]** `pitchTimingBlock()`'s objective words/minute pacing
+  data (§21) is currently only computed and injected for Pitch mode, even though every mode's turns
+  now carry a real duration after the §21 fix. `SECTION_DESCRIPTIONS.delivery` in `lib/grading.ts`
+  still says pace is "infer[red]... from phrasing and word choice... since no audio is available" —
+  that comment is now stale; duration doesn't require audio, just the timestamps that are already
+  real. Extending real WPM data to every mode's Delivery scoring, not just Pitch's, is probably the
+  single best-ROI improvement available (raised in conversation, not yet built).
+- **[Idea, not started]** Re-practice & compare — redo the same topic and see a direct before/after
+  score diff, rather than only the aggregate trend line on `/app/progress`. More actionable and
+  motivating than a general upward trend; the data model already groups by topic/mode, so this is
+  mostly a query plus a small UI addition, not a schema change.
+- **[Idea, not started]** Adjustable Debate/Interview intensity ("easy / standard / tough") — a
+  small persona-prompt change (`lib/persona.ts`) with outsized replay value, since every debate
+  currently argues at the same pushback level regardless of the user's experience.
+- **[Known limitation, not started]** No path to a public deployment yet. Two real blockers
+  discussed but not yet acted on: (1) `lib/store.ts` writes sessions/feedback/logs to local JSON
+  files, which doesn't survive Vercel's ephemeral per-invocation filesystem — needs a real backing
+  store (e.g. Postgres) before deploying there; (2) `LOCAL_USER_ID` (§5, §18) is a single hardcoded
+  constant — no auth, so a public URL would let every visitor share one identity and see each
+  other's sessions, and would let anyone spend the app's own Groq/OpenRouter API budget with no
+  gating. Storage should come first (it's what actually breaks in production); auth is what makes it
+  safe to share the URL at all.

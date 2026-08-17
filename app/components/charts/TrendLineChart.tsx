@@ -13,9 +13,9 @@ const HEIGHT = 180;
 const PAD_X = 16;
 const PAD_Y = 16;
 const MAX_SCORE = 5;
-// Tailwind blue-600 — same hue used everywhere else scores appear in this app.
-const LINE_COLOR = "#2563eb";
-const GRID_COLOR = "#e5e7eb";
+// Ember — same accent used everywhere else scores appear in this app.
+const LINE_COLOR = "#d98e4a";
+const GRID_COLOR = "rgb(243 237 225 / 8%)";
 
 /**
  * Change over time is exactly the job a line chart is for. Single series, so
@@ -61,14 +61,14 @@ export function TrendLineChart({ points }: { points: TrendPoint[] }) {
       </svg>
       {hovered && (
         <div
-          className="pointer-events-none absolute -translate-x-1/2 -translate-y-[calc(100%+8px)] rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs whitespace-nowrap shadow-sm"
+          className="pointer-events-none absolute -translate-x-1/2 -translate-y-[calc(100%+8px)] rounded-lg border border-hairline bg-ink-900 px-2 py-1 font-mono text-xs whitespace-nowrap shadow-sm"
           style={{
             left: `${(xFor(hoverIdx!) / WIDTH) * 100}%`,
             top: `${(yFor(hovered.average) / HEIGHT) * 100}%`,
           }}
         >
-          <div className="font-medium text-gray-900">{hovered.average.toFixed(1)} / 5</div>
-          <div className="text-gray-400">{new Date(hovered.createdAt).toLocaleDateString()}</div>
+          <div className="text-parchment-100">{hovered.average.toFixed(1)} / 5</div>
+          <div className="text-parchment-500">{new Date(hovered.createdAt).toLocaleDateString()}</div>
         </div>
       )}
     </div>

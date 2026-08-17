@@ -21,8 +21,19 @@ export async function POST(
     return NextResponse.json({ error: "session already ended" }, { status: 400 });
   }
 
+  // The client (app/(app)/session/[id]/page.tsx) tracks how long the user
+  // actually had the floor — from the moment it became their turn (mic tap,
+  // or the previous AI line finishing) to this submit — and sends it as
+  // elapsedMs. Without it, startTs/endTs would both just be "now," which is
+  // exactly the bug that made pacing feedback impossible to ground in real
+  // numbers (see lib/grading.ts's pitch timing block). Clamped to a sane
+  // ceiling (30 min) and floored at 0 so a clock skew or stale ref can't
+  // produce a nonsensical duration.
+  const rawElapsedMs = typeof body?.elapsedMs === "number" && Number.isFinite(body.elapsedMs) ? body.elapsedMs : 0;
+  const elapsedMs = Math.min(Math.max(rawElapsedMs, 0), 30 * 60 * 1000);
+
   const userTs = Date.now();
-  session.turns.push({ speaker: "user", text, audioRef: null, startTs: userTs, endTs: Date.now() });
+  session.turns.push({ speaker: "user", text, audioRef: null, startTs: userTs - elapsedMs, endTs: userTs });
 
   let replyError: string | null = null;
   try {

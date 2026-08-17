@@ -1,32 +1,57 @@
 @import "tailwindcss";
 
+/*
+ * Elocu's world, everywhere: the ink/parchment/ember/verdigris palette and
+ * Fraunces/Plex-Mono/Inter type system originated on the marketing landing
+ * page (app/page.tsx) and now extends into the app itself, so a practice
+ * session feels like the same place the pitch was made in, not a generic
+ * SaaS shell bolted on afterward. One committed dark identity, not a
+ * system-driven light/dark toggle.
+ */
+@theme {
+  --color-ink-950: #14131b;
+  --color-ink-900: #1a1826;
+  --color-ink-800: #1e1c28;
+  --color-ink-700: #29273a;
+  --color-parchment-100: #f3ede1;
+  --color-parchment-300: #c9c1b2;
+  --color-parchment-500: #9c9488;
+  --color-ember-400: #e6a262;
+  --color-ember-500: #d98e4a;
+  --color-verdigris-400: #6f9d94;
+  --color-verdigris-500: #5b8a82;
+  --color-rust-400: #d97a6c;
+  --color-rust-500: #c4544a;
+  --color-gold-500: #d9b54a;
+  --color-hairline: rgb(243 237 225 / 10%);
+
+  --font-display: var(--font-fraunces);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-plex-mono);
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --background: #14131b;
+  --foreground: #f3ede1;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* One consistent, visible focus treatment app-wide rather than per-element
+   utility classes — the browser default outline clashes with a dark theme. */
+:focus-visible {
+  outline: 2px solid var(--color-ember-500);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 /* Landing page hero: transcript lines reveal in sequence, like a live
-   transcript being typed — the signature moment of the page. */
+   transcript being typed — the signature moment of the page, reused inside
+   the app's own live session view (app/(app)/session/[id]/page.tsx) for the
+   same effect on each new turn. */
 @keyframes transcript-reveal {
   from {
     opacity: 0;
@@ -51,11 +76,26 @@ body {
 
 .transcript-line {
   opacity: 0;
-  animation: transcript-reveal 0.5s ease-out forwards;
+  animation: transcript-reveal 0.4s ease-out forwards;
 }
 
 .transcript-cursor {
   animation: cursor-blink 1s step-end infinite;
+}
+
+/* Mic button's "live" ring while listening — a soft outward pulse rather
+   than a hard blink, echoing the transcript cursor's restraint. */
+@keyframes mic-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgb(217 142 74 / 45%);
+  }
+  100% {
+    box-shadow: 0 0 0 14px rgb(217 142 74 / 0%);
+  }
+}
+
+.mic-listening {
+  animation: mic-pulse 1.6s ease-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -64,7 +104,8 @@ body {
     animation: none;
   }
 
-  .transcript-cursor {
+  .transcript-cursor,
+  .mic-listening {
     animation: none;
   }
 }
