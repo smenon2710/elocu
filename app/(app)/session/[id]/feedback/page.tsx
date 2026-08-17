@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { ReactNode } from "react";
+import { Metric } from "@/app/components/Metric";
 import { computeContentMetrics } from "@/lib/contentMetrics";
 import { computeConversationMetrics } from "@/lib/conversationMetrics";
 import { computeDeliveryMetrics } from "@/lib/deliveryMetrics";
@@ -21,6 +23,19 @@ function formatClock(ms: number): string {
   const s = totalSec % 60;
   return `${m}:${String(s).padStart(2, "0")}`;
 }
+
+const METRIC_TOOLTIPS = {
+  wpm: "Words per minute. Comprehension research (Univ. of Michigan; Univ. of Missouri) points to ~150–160 wpm as the clearest pace to listen to — noticeably faster measurably hurts comprehension. Slower (130–140) suits dense material; faster (150–165) suits persuasive contexts like debate.",
+  filler:
+    "Vocalized fillers like \"um\" and \"like.\" Occasional ones are natural and rarely hurt you — a high density is what tends to read as unprepared. There's no universal target; fewer is simply better.",
+  hedge:
+    "Words that soften a claim's confidence (\"I think,\" \"just,\" \"kind of\"). Used rarely they're normal — used often they can undercut a strong point even when the underlying content is solid.",
+  ttr: "Unique words ÷ total words. This drops naturally the longer you talk, even with no real change in vocabulary richness — read it as a same-session signal, not a score to chase.",
+  talkTime:
+    "Your share of words spoken vs. the AI's. Conversation-analysis research (e.g. Gong's study of 100,000+ sales calls) found the best-received two-way conversations cluster around 40–55% — well above that tends to mean not leaving room for the other person.",
+  questionRate:
+    "Share of your turns that asked something back. Rarely asking anything across many turns can read as low engagement with what they said, not just low curiosity.",
+} as const;
 
 /**
  * Derived straight from the turn's real startTs/endTs (see
@@ -60,23 +75,50 @@ function DeliveryMetrics({ session }: { session: Session }) {
   const { wpm, fillerCount, fillerPct, hedgeCount, hedgePct } = computeDeliveryMetrics(session);
   if (wpm === null && fillerPct === null && hedgePct === null) return null;
 
-  const parts: string[] = [];
-  if (wpm !== null) parts.push(`${wpm} wpm`);
+  const parts: ReactNode[] = [];
+  if (wpm !== null) {
+    parts.push(
+      <Metric key="wpm" tooltip={METRIC_TOOLTIPS.wpm}>
+        {`${wpm} wpm`}
+      </Metric>
+    );
+  }
   if (fillerPct !== null) {
-    parts.push(`${fillerCount} filler word${fillerCount === 1 ? "" : "s"} (${fillerPct.toFixed(1)}%)`);
+    parts.push(
+      <Metric key="filler" tooltip={METRIC_TOOLTIPS.filler}>
+        {`${fillerCount} filler word${fillerCount === 1 ? "" : "s"} (${fillerPct.toFixed(1)}%)`}
+      </Metric>
+    );
   }
   if (hedgePct !== null) {
-    parts.push(`${hedgeCount} hedge word${hedgeCount === 1 ? "" : "s"} (${hedgePct.toFixed(1)}%)`);
+    parts.push(
+      <Metric key="hedge" tooltip={METRIC_TOOLTIPS.hedge}>
+        {`${hedgeCount} hedge word${hedgeCount === 1 ? "" : "s"} (${hedgePct.toFixed(1)}%)`}
+      </Metric>
+    );
   }
 
-  return <p className="mt-1 font-mono text-sm text-parchment-500">{parts.join(" · ")}</p>;
+  return (
+    <p className="mt-1 font-mono text-sm text-parchment-500">
+      {parts.map((part, i) => (
+        <span key={i}>
+          {i > 0 && " · "}
+          {part}
+        </span>
+      ))}
+    </p>
+  );
 }
 
 /** Vocabulary diversity (see lib/contentMetrics.ts) — same always-accurate pattern as DeliveryMetrics above. */
 function ContentMetrics({ session }: { session: Session }) {
   const { ttrPct } = computeContentMetrics(session);
   if (ttrPct === null) return null;
-  return <p className="mt-1 font-mono text-sm text-parchment-500">{ttrPct.toFixed(0)}% vocabulary diversity</p>;
+  return (
+    <p className="mt-1 font-mono text-sm text-parchment-500">
+      <Metric tooltip={METRIC_TOOLTIPS.ttr}>{`${ttrPct.toFixed(0)}% vocabulary diversity`}</Metric>
+    </p>
+  );
 }
 
 /** Talk-time & question rate, Conversation mode only (see lib/conversationMetrics.ts). */
@@ -85,10 +127,29 @@ function ConversationMetricsLine({ session }: { session: Session }) {
   const { talkTimePct, questionRatePct } = computeConversationMetrics(session);
   if (talkTimePct === null) return null;
 
-  const parts = [`${talkTimePct.toFixed(0)}% talk time`];
-  if (questionRatePct !== null) parts.push(`asked a question back ${questionRatePct.toFixed(0)}% of turns`);
+  const parts: ReactNode[] = [
+    <Metric key="talkTime" tooltip={METRIC_TOOLTIPS.talkTime}>
+      {`${talkTimePct.toFixed(0)}% talk time`}
+    </Metric>,
+  ];
+  if (questionRatePct !== null) {
+    parts.push(
+      <Metric key="questionRate" tooltip={METRIC_TOOLTIPS.questionRate}>
+        {`asked a question back ${questionRatePct.toFixed(0)}% of turns`}
+      </Metric>
+    );
+  }
 
-  return <p className="mt-1 font-mono text-sm text-parchment-500">{parts.join(" · ")}</p>;
+  return (
+    <p className="mt-1 font-mono text-sm text-parchment-500">
+      {parts.map((part, i) => (
+        <span key={i}>
+          {i > 0 && " · "}
+          {part}
+        </span>
+      ))}
+    </p>
+  );
 }
 
 function ScoreBar({ score }: { score: number }) {

@@ -683,3 +683,45 @@ detection and sentiment/tone bias were both evaluated and left out — grammar c
 meaningfully different, more specialized problem than word-list counting, and sentiment/tone
 overlaps enough with the existing Engagement/Argumentation sections that a dedicated metric risked
 rubric bloat for unclear added value. Both stay on the list if a concrete need for them shows up.
+
+---
+
+## 26. Metric definitions on hover, grounded in real research where it exists
+
+Real feedback on §25's stat lines: a raw `113 wpm · 0 filler words (0.0%) · 0 hedge words (0.0%)`
+tells you a number but not whether it's good. Added `app/components/Metric.tsx` — a small hover/
+focus tooltip wrapping each stat with what it measures and, where genuine research exists, a real
+target range instead of an invented one.
+
+Searched rather than asserted from memory for the two metrics that plausibly have real backing:
+
+- **Words per minute**: a University of Michigan study and a University of Missouri study both
+  converge on ~150–160 wpm as the pace with the best comprehension, with speeds above ~180 wpm
+  measurably hurting it. This matches what was already coded in as a guideline (§21/§23's
+  "130-160 wpm typical, faster normal for debate") — good confirmation it wasn't invented, and now
+  it's cited in the tooltip instead of asserted bare.
+- **Talk-time ratio**: HubSpot/Gong's analysis of 25,000+ (later 100,000+) sales calls found the
+  best-performing conversations cluster around a 43:57 talk-to-listen ratio, with talking >65% of
+  the time correlating with materially worse outcomes. This is sales-call research specifically, not
+  general conversation-practice research — the tooltip is worded to say "conversation-analysis
+  research (e.g. Gong's study...)" rather than implying it was validated for casual conversation, an
+  honest hedge rather than overclaiming transfer.
+- Filler words, hedge words, and vocabulary diversity (TTR) don't have an equivalent "here's the
+  scientifically optimal number" finding — the tooltip explains what's measured and how to read the
+  direction (lower filler/hedge density reads as more prepared/confident; TTR is a same-session
+  signal only, already documented in §25 as biased by text length) rather than inventing a target
+  that doesn't exist.
+
+**A real bug found while verifying this, not while writing it**: the first implementation centered
+each tooltip under its trigger word with pure CSS (`left-1/2 -translate-x-1/2`). Looked fine on
+desktop; on a 390px mobile viewport, hovering either the first metric in a line (tooltip clipped off
+the *left* edge — "words per minute" chopped down to unreadable fragments) or a later one (clipped
+off the *right*) both overflowed, confirmed live with screenshots of each. Centering math alone can't
+know where the viewport edge is. Fixed by converting `Metric` into a small client component
+(`app/components/Metric.tsx` — the rest of the feedback page stays a Server Component; Next.js allows
+a Server Component to render a Client Component as a normal child, so only this one leaf needed
+`"use client"`) that measures its own position on hover/focus via `getBoundingClientRect()` and nudges
+the tooltip's transform just enough to stay within a 12px margin of the viewport edge. Reverified both
+previously-broken cases (first metric, third metric) at 390px width — both now render fully on-screen
+— plus confirmed keyboard focus (not just mouse hover) also triggers the tooltip, satisfying the
+"visible keyboard focus" accessibility bar the rest of the app already holds to.
