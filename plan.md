@@ -480,10 +480,10 @@ this project's own convention (see intro) so they're pickable next session inste
 
 - ~~**[Bug]** Groq's `llama-3.1-8b-instant` 404ing on every call.~~ **Done, §24.**
 - ~~**[Improvement]** Extend objective WPM pacing beyond Pitch mode.~~ **Done, §23.**
-- **[Idea, not started]** Re-practice & compare — redo the same topic and see a direct before/after
-  score diff, rather than only the aggregate trend line on `/app/progress`. More actionable and
-  motivating than a general upward trend; the data model already groups by topic/mode, so this is
-  mostly a query plus a small UI addition, not a schema change.
+- ~~**[Idea]** Re-practice & compare — redo the same topic and see a direct before/after score diff.~~
+  **Done, §25** (practice goals — `goalLabel`, the feedback-page delta, `/app/goals/[label]`'s
+  per-goal trend), though arrived at via an explicit named "goal" rather than implicit same-topic
+  matching as originally sketched here.
 - **[Idea, not started]** Adjustable Debate/Interview intensity ("easy / standard / tough") — a
   small persona-prompt change (`lib/persona.ts`) with outsized replay value, since every debate
   currently argues at the same pushback level regardless of the user's experience.
