@@ -825,3 +825,36 @@ mode tabs correctly show only the 6 modes actually practiced, each filtered view
 cross-checked against the underlying session files, and the Pitch tab's real aggregate ("−35s under
 budget on average, 20% landed on target across 5 pitches") confirmed against the individual
 session timings it was built from.
+
+---
+
+## 29. Voice picker — the free tier of the "different voices" idea
+
+Floated earlier as an improvement idea, in two tiers: a free browser-voice picker now, a cloud TTS
+provider (ElevenLabs/OpenAI) later for real quality/character. Built the free tier — `lib/useSpeech.ts`
+previously constructed every `SpeechSynthesisUtterance` with no voice set at all, so every AI reply
+used whichever default voice the OS happened to expose, with zero way to change it.
+
+`useSpeech()` now loads `speechSynthesis.getVoices()` (plus the `voiceschanged` event, since most
+browsers populate the list asynchronously and an immediate call is frequently empty) and exposes
+`voices`/`voiceURI`/`setVoiceURI`. Selection persists in `localStorage`, not the session store — a
+device/browser preference, not app data tied to a session. `app/components/VoicePicker.tsx` renders a
+sorted dropdown (English voices first, matching the app's English-only personas) above the mic
+controls on the session page, gated on `speech.supported && voices.length > 0` so it never shows a
+picker for zero voices. Picking a new one immediately re-speaks the actual last AI line in it (not a
+generic sample phrase) — hearing the persona's real words, not a canned "hello, this is my voice," is
+what actually tells you whether a voice fits.
+
+One real lint catch: seeding `voiceURI` from `localStorage.getItem()` inside a `useEffect` triggered
+`react-hooks/set-state-in-effect` (same rule §21's pitch-clock work hit earlier). Fixed by reading it
+via `useState`'s lazy initializer instead of an effect — safe here specifically because nothing
+renders differently based on `voiceURI` until `voices` itself populates (still `[]` at both server-
+and first-client-render), so there's no server/client hydration mismatch risk from a synchronous
+`localStorage` read up front.
+
+Verified live: 180 real system voices loaded in a real browser context (not a stub/empty list), the
+dropdown correctly sorted English-first, and the full persistence round-trip (pick a voice → reload
+the page → same voice still selected) confirmed working. Deliberately scoped to *one* global voice
+preference, not per-mode auto-varied voices (a "Debate opponent sounds assertive, Interview sounds
+professional" idea raised alongside this one) — browser voices carry no personality/character
+metadata to key that kind of selection off of; that idea fits the cloud-TTS tier, not this one.

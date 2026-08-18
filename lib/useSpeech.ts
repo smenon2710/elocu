@@ -38,6 +38,10 @@ const noopSubscribe = () => () => {};
 const getSupportedSnapshot = () => getSpeechRecognitionCtor() !== null && "speechSynthesis" in window;
 const getSupportedServerSnapshot = () => false;
 
+// Which TTS voice to speak AI replies in — a device/browser preference, not
+// app data, so it lives in localStorage rather than the session store.
+const VOICE_STORAGE_KEY = "elocu-voice-uri";
+
 /**
  * Wraps browser-native STT (SpeechRecognition) and TTS (speechSynthesis).
  *
@@ -54,6 +58,15 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
   const [interimText, setInterimText] = useState("");
   const supported = useSyncExternalStore(noopSubscribe, getSupportedSnapshot, getSupportedServerSnapshot);
 
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  // Lazy initializer (not an effect) since localStorage is a synchronous
+  // read — nothing renders differently based on this before `voices` itself
+  // populates post-hydration (see the effect below), so there's no
+  // server/client mismatch risk from reading it up front.
+  const [voiceURI, setVoiceURIState] = useState<string | null>(() =>
+    typeof window === "undefined" ? null : localStorage.getItem(VOICE_STORAGE_KEY)
+  );
+
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const finalBufferRef = useRef("");
   const manualStopRef = useRef(false);
@@ -66,6 +79,27 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
   useEffect(() => {
     onFinalRef.current = onFinalTranscript;
   }, [onFinalTranscript]);
+
+  // Voice list loads asynchronously in most browsers — an initial
+  // getVoices() call is frequently empty, populated later via the
+  // voiceschanged event, hence both here rather than just one.
+  useEffect(() => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+
+    function loadVoices() {
+      setVoices(window.speechSynthesis.getVoices());
+    }
+    loadVoices();
+    window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
+    return () => window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
+  }, []);
+
+  const setVoiceURI = useCallback((uri: string | null) => {
+    setVoiceURIState(uri);
+    if (typeof window === "undefined") return;
+    if (uri) localStorage.setItem(VOICE_STORAGE_KEY, uri);
+    else localStorage.removeItem(VOICE_STORAGE_KEY);
+  }, []);
 
   // Builds one recognizer instance wired for the accumulate-until-stopped
   // model.
@@ -181,20 +215,27 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
     recognitionRef.current.stop();
   }, []);
 
-  const speak = useCallback((text: string): Promise<void> => {
-    return new Promise((resolve) => {
-      if (!("speechSynthesis" in window) || !text) {
-        resolve();
-        return;
-      }
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.onend = () => resolve();
-      utterance.onerror = () => resolve();
-      setState("speaking");
-      window.speechSynthesis.speak(utterance);
-    });
-  }, []);
+  const speak = useCallback(
+    (text: string): Promise<void> => {
+      return new Promise((resolve) => {
+        if (!("speechSynthesis" in window) || !text) {
+          resolve();
+          return;
+        }
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        if (voiceURI) {
+          const match = window.speechSynthesis.getVoices().find((v) => v.voiceURI === voiceURI);
+          if (match) utterance.voice = match;
+        }
+        utterance.onend = () => resolve();
+        utterance.onerror = () => resolve();
+        setState("speaking");
+        window.speechSynthesis.speak(utterance);
+      });
+    },
+    [voiceURI]
+  );
 
   useEffect(() => {
     return () => {
@@ -210,5 +251,5 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
     };
   }, []);
 
-  return { state, setState, supported, interimText, startListening, stopListening, speak };
+  return { state, setState, supported, interimText, startListening, stopListening, speak, voices, voiceURI, setVoiceURI };
 }

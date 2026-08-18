@@ -2,6 +2,7 @@
 
 import { use, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { VoicePicker } from "@/app/components/VoicePicker";
 import { useSpeech } from "@/lib/useSpeech";
 import type { SessionMode } from "@/lib/types";
 
@@ -191,6 +192,17 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   // resumable (e.g. if a slow/unreliable free model made you want to bail
   // mid-conversation, you still get feedback on what you did, and can come
   // back and pick up where you left off later via the sidebar or home page).
+  // Previews the newly-picked voice against the actual most recent AI line
+  // (not a generic sample phrase) whenever it's safe to interrupt — hearing
+  // the persona's real words is what tells you whether the voice actually
+  // fits, a generic "hello, this is my voice" doesn't.
+  function handleVoiceChange(uri: string) {
+    speech.setVoiceURI(uri);
+    if (sending || ended || pausing || speech.state === "listening" || speech.state === "thinking") return;
+    const lastAiTurn = [...turns].reverse().find((t) => t.speaker === "ai");
+    if (lastAiTurn) speech.speak(lastAiTurn.text);
+  }
+
   async function pauseSession() {
     if (pausingRef.current || endingRef.current) return;
     pausingRef.current = true;
@@ -237,6 +249,12 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       {error && <p className="mt-2 text-sm text-rust-400">{error}</p>}
 
       <div className="mt-4 flex flex-col gap-3">
+        {speech.supported && speech.voices.length > 0 && (
+          <div className="flex justify-center">
+            <VoicePicker voices={speech.voices} voiceURI={speech.voiceURI} onChange={handleVoiceChange} />
+          </div>
+        )}
+
         {showPitchClock && (
           <p
             className={`text-center font-mono text-sm tabular-nums ${
