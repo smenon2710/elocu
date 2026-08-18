@@ -771,3 +771,57 @@ Reverified against three concrete scenarios after each round: the near-header tr
 text now visible, flips below when that has more room), an artificially short viewport (degrades to
 scrollable instead of spilling off-screen), and both previously-fixed mobile horizontal edge cases
 (still clean). All three confirmed clean in the final version.
+
+---
+
+## 28. `/app/progress` → `/app/insights`: per-mode segmentation and the delivery-metric trends
+
+Real feedback: the old Progress page mixed every mode into one blended set of numbers (one trend
+line, one overall average) — someone who only cares about their Interview practice had no way to see
+*just* that. Separately, §23/§25's real per-session metrics (WPM, filler/hedge density, vocabulary
+diversity, talk-time ratio, pitch-timing adherence) only ever showed on individual feedback pages,
+never aggregated over time — so "am I actually getting faster/clearer" had no dashboard answer either.
+
+**Segmentation**: `/app/insights?mode=X` — tabs at the top (`All` plus one per mode *that actually has
+data*, so a mode never practiced doesn't get a dead tab) filter every section on the page: the stat
+tiles, the trend line, the section-score breakdown. Implemented as a server-rendered query param
+rather than client-side filtering — the page is already an async Server Component reading from the
+file store directly, and a mode filter is naturally just "read the same data, filter the array before
+aggregating," no client JS needed for it. The "Average score by mode" bar chart only makes sense in
+the unfiltered `All` view (obviously redundant once already filtered to one mode) and is hidden
+whenever a mode is selected; the "Strongest mode" stat tile is replaced by "Best section" in that case
+— same underlying `sectionAverages` data, just the more useful question once mode is no longer the
+free variable.
+
+**More parameters, reusing the real work already done**: `lib/deliveryMetrics.ts`,
+`lib/contentMetrics.ts`, and `lib/conversationMetrics.ts`'s compute functions took a full `Session` but
+only ever touched `.turns` — narrowed their parameter type to `{ turns: TranscriptTurn[] }` so they
+could run against the lighter `FeedbackWithSession` rows the insights/goals pages already have, no
+second file read needed. `lib/store.ts`'s `FeedbackWithSession` grew `turns` and `pitchTimeLimitSec`
+(both already being read off the session file for every row anyway, just not returned before now).
+Also extracted `lib/pitchMetrics.ts`'s `computePitchTiming()` out of the feedback page, where the
+target-vs-actual calculation was previously inlined — now shared between the per-session display and
+the new aggregate.
+
+Three new sections, each hidden when there's no qualifying data rather than showing a misleading
+zero: **Delivery** (average pace/filler%/hedge%/vocabulary-diversity, shown in every mode view since
+they're not mode-specific) — note that a session's Pace tile is silently excluded from that particular
+average whenever its own WPM wasn't trustworthy enough to compute (same `MIN_DURATION_SEC_FOR_WPM`
+guard as the per-session page), which is why the Pitch-mode view above showed Filler/Hedge/TTR but no
+Pace tile for one real session batch — correct behavior, not a bug, confirmed by checking the
+underlying data rather than assuming; **Conversation dynamics** (talk-time %, question-asking rate),
+shown only in the Conversation tab; **Pitch timing** (average seconds over/under budget, % landing
+within ~15%-or-5s of target), shown only in the Pitch tab.
+
+**Rename**: "Progress" → "Insights" — the page stopped being just "did my score go up" once it started
+answering "how's my pace," "am I talking too much," "am I hitting my pitch time budget." Renamed the
+route too (`app/(app)/app/progress` → `app/(app)/app/insights`) rather than keeping the old path as a
+redirect shim — this is a local single-user app with no external bookmarks to preserve, so a clean
+rename beat a compatibility layer nobody needs. Updated the one nav link (`Header.tsx`) and the one
+stray doc comment (`/app/goals/[label]/page.tsx`) that referenced the old path.
+
+Verified live against real accumulated data (12 graded sessions, mixed modes, no synthetic data):
+mode tabs correctly show only the 6 modes actually practiced, each filtered view's numbers
+cross-checked against the underlying session files, and the Pitch tab's real aggregate ("−35s under
+budget on average, 20% landed on target across 5 pitches") confirmed against the individual
+session timings it was built from.

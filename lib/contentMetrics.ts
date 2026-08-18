@@ -1,4 +1,4 @@
-import type { Session } from "./types";
+import type { TranscriptTurn } from "./types";
 
 // Below this many words, type-token ratio is dominated by noise (a 5-word
 // turn is trivially "100% unique"). Raw TTR is also inherently biased by
@@ -23,7 +23,7 @@ export interface ContentMetrics {
  * measured data and the feedback page's stat line, same pattern as
  * lib/deliveryMetrics.ts.
  */
-export function computeContentMetrics(session: Session): ContentMetrics {
+export function computeContentMetrics(session: { turns: TranscriptTurn[] }): ContentMetrics {
   const userTurns = session.turns.filter((t) => t.speaker === "user");
   const words = userTurns
     .flatMap((t) => t.text.toLowerCase().match(/[a-z0-9']+/g) ?? [])

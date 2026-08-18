@@ -15,7 +15,7 @@ function sectionAverage(sections: FeedbackSections): number {
 /**
  * Every graded attempt at the same named thing ("Pitch to Dale Carnegie"),
  * oldest first — the answer to "am I actually getting better at THIS," which
- * the global /app/progress trend (averaged across every topic) can't show.
+ * the global /app/insights trend (averaged across every topic) can't show.
  */
 export default async function GoalPage({ params }: { params: Promise<{ label: string }> }) {
   const { label: encodedLabel } = await params;

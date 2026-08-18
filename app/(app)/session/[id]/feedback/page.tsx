@@ -5,6 +5,7 @@ import { Metric } from "@/app/components/Metric";
 import { computeContentMetrics } from "@/lib/contentMetrics";
 import { computeConversationMetrics } from "@/lib/conversationMetrics";
 import { computeDeliveryMetrics } from "@/lib/deliveryMetrics";
+import { computePitchTiming } from "@/lib/pitchMetrics";
 import { getFeedback, getPreviousAttemptForGoal, getSession } from "@/lib/store";
 import type { FeedbackSection, FeedbackSections, Session } from "@/lib/types";
 
@@ -46,13 +47,9 @@ const METRIC_TOOLTIPS = {
  * placeholders.
  */
 function PitchTiming({ session }: { session: Session }) {
-  if (session.mode !== "pitch" || !session.pitchTimeLimitSec) return null;
-  const turn = session.turns.find((t) => t.speaker === "user");
-  if (!turn) return null;
-
-  const actualMs = turn.endTs - turn.startTs;
-  const targetMs = session.pitchTimeLimitSec * 1000;
-  const diffSec = Math.round((actualMs - targetMs) / 1000);
+  const timing = computePitchTiming(session);
+  if (!timing) return null;
+  const { actualSec, targetSec, diffSec } = timing;
   const tone = diffSec > 0 ? "text-rust-400" : diffSec < 0 ? "text-verdigris-400" : "text-ember-400";
   const note = diffSec > 0 ? `${diffSec}s over` : diffSec < 0 ? `${-diffSec}s under` : "right on target";
 
@@ -61,7 +58,7 @@ function PitchTiming({ session }: { session: Session }) {
       Delivered in{" "}
       <Metric tooltip={METRIC_TOOLTIPS.pitchTiming}>
         <span className={tone}>
-          {formatClock(actualMs)} / {formatClock(targetMs)}
+          {formatClock(actualSec * 1000)} / {formatClock(targetSec * 1000)}
         </span>{" "}
         — {note}
       </Metric>

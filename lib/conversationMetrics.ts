@@ -1,4 +1,4 @@
-import type { Session } from "./types";
+import type { TranscriptTurn } from "./types";
 
 export interface ConversationMetrics {
   /** null when there's no text on either side to compute a ratio from. */
@@ -20,7 +20,7 @@ function wordCount(text: string): number {
  * duration-based ratio isn't available for the AI's turns, which are never
  * "spoken" client-side), question rate by counting "?" per user turn.
  */
-export function computeConversationMetrics(session: Session): ConversationMetrics {
+export function computeConversationMetrics(session: { turns: TranscriptTurn[] }): ConversationMetrics {
   const userTurns = session.turns.filter((t) => t.speaker === "user");
   const aiTurns = session.turns.filter((t) => t.speaker === "ai");
 

@@ -127,9 +127,15 @@ npm run lint
   far without ending it — the session stays resumable, unlike `/api/sessions/[id]/end` (permanent).
 - **History sidebar** (`app/components/HistorySidebar.tsx`) lists every session, in-progress and
   completed, linking to the right place (resume vs. view feedback) for each.
-- **Progress dashboard** (`/app/progress`) — overall average, per-section and per-mode breakdowns,
-  and a score-over-time trend, aggregated across every graded session (`lib/progress.ts`). Only
-  counts sessions where grading actually succeeded toward the averages.
+- **Insights dashboard** (`/app/insights`) — overall average, per-section breakdown, and a
+  score-over-time trend, aggregated across every graded session (`lib/progress.ts`). Only counts
+  sessions where grading actually succeeded toward the averages. Filterable per mode (`?mode=X`,
+  tabs only shown for modes you've actually practiced) — an unfiltered view also shows the
+  cross-mode breakdown; a filtered one swaps that for a "best section" callout. Also aggregates the
+  real, deterministic metrics from `lib/deliveryMetrics.ts`/`contentMetrics.ts`/
+  `conversationMetrics.ts`/`pitchMetrics.ts` — average pace, filler/hedge density, vocabulary
+  diversity everywhere; talk-time ratio and question-asking rate for Conversation; time-budget
+  adherence for Pitch.
 
 ## Logs
 

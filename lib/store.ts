@@ -1,6 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
-import type { Session, SessionMode, Feedback, FeedbackSections } from "./types";
+import type { Session, SessionMode, Feedback, FeedbackSections, TranscriptTurn } from "./types";
 
 const SESSIONS_DIR = path.join(process.cwd(), "data", "sessions");
 
@@ -148,13 +148,16 @@ export interface FeedbackWithSession {
   sections: FeedbackSections;
   /** False if gradingFailed or emptyTranscript — placeholder scores that would skew averages. */
   valid: boolean;
+  /** Real transcript turns — lets callers (lib/progress.ts) compute WPM/filler/TTR/etc. without a second file read. */
+  turns: TranscriptTurn[];
+  pitchTimeLimitSec: number | null;
 }
 
 /**
  * Every session that has feedback, oldest first — the raw material for the
  * progress dashboard and goal-comparison views. Reads each feedback file's
- * matching session file alongside it (for mode/topic/createdAt/goalLabel)
- * rather than requiring two separate round trips per caller.
+ * matching session file alongside it (for mode/topic/createdAt/goalLabel/
+ * turns) rather than requiring two separate round trips per caller.
  */
 export async function listAllFeedback(): Promise<FeedbackWithSession[]> {
   let files: string[];
@@ -183,6 +186,8 @@ export async function listAllFeedback(): Promise<FeedbackWithSession[]> {
           goalLabel: session.goalLabel ?? null,
           sections: fb.sections,
           valid: !fb.gradingFailed && !fb.emptyTranscript,
+          turns: session.turns,
+          pitchTimeLimitSec: session.pitchTimeLimitSec ?? null,
         };
       } catch {
         return null;

@@ -1,4 +1,4 @@
-import type { Session } from "./types";
+import type { TranscriptTurn } from "./types";
 
 // Lexical fillers only. Non-lexical ones ("um", "uh") are vocalized pauses
 // that speech-recognition engines frequently drop entirely rather than
@@ -67,7 +67,7 @@ function countPhrases(text: string, phrases: readonly string[]): Record<string, 
  * feedback page's always-accurate stat line, which stays correct even when
  * grading itself fails.
  */
-export function computeDeliveryMetrics(session: Session): DeliveryMetrics {
+export function computeDeliveryMetrics(session: { turns: TranscriptTurn[] }): DeliveryMetrics {
   const userTurns = session.turns.filter((t) => t.speaker === "user");
   const totalWords = userTurns.reduce((sum, t) => sum + wordCount(t.text), 0);
   const totalDurationSec = userTurns.reduce((sum, t) => sum + Math.max(0, (t.endTs - t.startTs) / 1000), 0);
