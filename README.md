@@ -131,6 +131,10 @@ npm run lint
   grading feedback honest, and it applies to every mode, not just Pitch.
 - **Sessions can be paused** (`/api/sessions/[id]/pause`) to get feedback on the conversation so
   far without ending it — the session stays resumable, unlike `/api/sessions/[id]/end` (permanent).
+  Both routes are idempotent about the grading LLM call itself: `/end` never regrades once feedback
+  exists, and `/pause` skips the call (returns the cached feedback) whenever nothing's changed since
+  the last pause (`Feedback.gradedTurnCount`, `lib/types.ts`) — it still regrades for real once a new
+  turn is added, or if the previous attempt actually failed.
 - **History sidebar** (`app/components/HistorySidebar.tsx`) lists every session, in-progress and
   completed, linking to the right place (resume vs. view feedback) for each.
 - **Insights dashboard** (`/app/insights`) — overall average, per-section breakdown, and a
@@ -141,7 +145,28 @@ npm run lint
   real, deterministic metrics from `lib/deliveryMetrics.ts`/`contentMetrics.ts`/
   `conversationMetrics.ts`/`pitchMetrics.ts` — average pace, filler/hedge density, vocabulary
   diversity everywhere; talk-time ratio and question-asking rate for Conversation; time-budget
-  adherence for Pitch.
+  adherence for Pitch. A "Your strength" callout (`lib/progress.ts`'s `getStrengthSummary()`) names
+  your top-scoring section instead of leaving it as a bar to interpret, and the section/mode
+  breakdowns are explicitly numbered (`#1`/`#2`/...).
+- **Goals** (also on `/app/insights`, via `app/components/ObjectiveForm.tsx`) — an optional, freely
+  addable `Objective` (`lib/types.ts`, `lib/objectives.ts`) tracked against your *entire* session
+  history, not one session, with a free-text note and **zero or more independent numeric targets**
+  (`Objective.targets`) — each its own metric (a score, pace, filler/hedge %, vocabulary diversity,
+  talk-time, question rate, or pitch timing accuracy, optionally scoped to one mode), each individually
+  addable, editable, and removable (`app/components/ObjectiveCard.tsx`'s inline `TargetEditor`, shared
+  option list in `app/components/objectiveTargetOptions.ts`), always shown with its mode scope stated
+  explicitly (including `(any mode)` when there isn't one). Distinct from a session's `goalLabel`
+  above, which just groups repeated attempts at one specific thing. Progress advice is never a new LLM
+  call: for `overallScore`/`sectionScore` it's the real, most-recently-generated grading fix for that
+  exact section; for every other metric it's computed deterministically from the real counted data in
+  the most recent qualifying session (`lib/objectives.ts`'s `deterministicAdviceFor()` — e.g. names the
+  actual filler/hedge words and counts) rather than reusing a whole-section fix that might be about
+  something else within the same section. A goal can request **"Suggest targets for me"** at any time
+  (`lib/objectiveSuggestion.ts`) — a one-off LLM call (OpenRouter primary, local Ollama fallback,
+  deliberately no Groq — benchmarked for accuracy on this specific mapping task, not speed, since it's a
+  user-triggered click, not something blocking the live conversation) that proposes concrete
+  metric+target options with a rationale; each can be added alongside whatever targets already exist,
+  not just swapped in for a single one.
 
 ## Logs
 

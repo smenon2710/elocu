@@ -958,3 +958,346 @@ The plan is grounded in the real current architecture rather than generic SaaS b
 
 `plan.md` §22's "no path to a public deployment" backlog item now points here rather than duplicating
 the same two blockers in two places.
+
+---
+
+## 33. Insights goals + a more engaging strength callout
+
+Two pieces of direct feedback on `/app/insights`: the existing section/mode ranking (§28's bar
+charts) read as flat and unengaging rather than telling the user something about themselves ("you're
+a good conversationalist/debater"), and there was no way to declare a goal and see real progress
+toward it with concrete advice on closing the gap.
+
+**Design decisions, asked rather than assumed** (three genuine forks, all confirmed directly before
+building):
+
+- **Advice timing**: aggregate, on `/app/insights`, computed over the whole session history — not
+  per-session, and explicitly not live in-session coaching. The user's own words: "per session may
+  not be helpful." This also meant not touching the live conversation loop or `lib/persona.ts` at
+  all, keeping this change fully decoupled from grading/conversation, and consistent with §"Scope
+  decision"'s original deferral of "live in-session coaching nudges."
+- **Goal shape**: both a structured numeric target *and* a free-text note are available on the same
+  goal, user's choice at setup, rather than forcing one shape.
+- **Goal scope**: multiple goals tracked in parallel, not one at a time.
+
+**New concept: `Objective`** (`lib/types.ts`), deliberately named and stored separately from
+`Session.goalLabel` (§25's "practice goal," which just groups repeated attempts at one specific
+thing, like "Pitch to Dale Carnegie") — an Objective is a broader target ("get better at Debate," "hit
+150wpm," "nail my interview March 3rd") measured across *every* qualifying graded session, not one
+practice thread. Reusing the word "goal" for two different concepts in code would have been a real
+maintainability trap, so the type/file/route layer says "Objective" throughout even though the UI
+copy says "goal" to the user (`app/components/ObjectiveForm.tsx`'s "+ Add a goal").
+
+An Objective's structured target can point at any of nine measurable dimensions: overall score,
+a specific section's score, speaking pace (wpm), filler-word %, hedging-word %, vocabulary diversity,
+talk-time % (Conversation only), question-asking rate (Conversation only), or pitch on-target rate
+(Pitch only) — the last three inherit their mode-lock from where those metrics already only apply
+(§25/§28). Every other target can optionally be scoped to one mode ("Delivery score, but only in
+Debate"). New `lib/objectives.ts`'s `computeObjectiveProgress()` does the actual work, and reuses
+everything already built rather than recomputing: `computeDeliveryMetrics`/`computeContentMetrics`/
+`computeConversationMetrics`/`computePitchTiming` for the raw numbers, and `lib/progress.ts`'s
+existing `computeTrend()` for the trend arrow (with the objective's user-chosen target substituted in
+as the `{ target }` goodness case where relevant, same distance-based logic §30 built for wpm/talk-time).
+
+**"Move toward it" advice is never fabricated** — matching this app's existing discipline (§16, §26,
+§31 all draw the same line between "measured/real" and "a guess dressed up as a finding"). Rather than
+issue a new LLM call to generate coaching text, `computeObjectiveProgress()` walks backward through
+the scoped session history and surfaces the real, already-generated grading `fix` string from the most
+recent qualifying session's relevant section (Delivery for pace/filler/hedge/pitch-timing goals,
+Content for vocabulary, Engagement for talk-time/question-rate, the section itself for a section-score
+goal). A pure free-text aspiration with no structured target gets the same treatment against its
+single weakest section in the most recent qualifying session — an honest "here's the real number
+holding you back" rather than an invented percentage.
+
+Progress-percent math (`progressPctFor`) branches on direction: higher-better metrics (scores, TTR,
+question-rate, pitch-on-target) are `current/target`; lower-better ones (filler%, hedge%) invert past
+100% once you're already under target; wpm/talk-time use the same "closeness to an exact number, either
+direction" framing as §30's trend arrows, just against the user's own chosen number instead of the
+app's fixed research target.
+
+**Storage**: `data/objectives/{id}.json`, one file per objective — same pattern as sessions/feedback,
+covered by the existing wholesale `/data/` gitignore rule, no new exclusion needed. `lib/store.ts`
+gained `saveObjective`/`listObjectives`/`deleteObjective`, the same shape as its session functions.
+`app/api/objectives/route.ts` (GET list, POST create) and `app/api/objectives/[id]/route.ts` (DELETE)
+follow the existing route conventions exactly (loose type-checked body parsing, no auth check — same
+as every other route today, per the still-open gap `saas-plan.md` already tracks).
+
+**Where it lives**: entirely on `/app/insights`, not the session-start flow — an "+ Add a goal" toggle
+(`app/components/ObjectiveForm.tsx`) keeps goal-setting fully optional, consistent with the app's "no
+setup screen" identity. Objectives are computed against the *whole* history regardless of the page's
+own `?mode=` tab filter (unlike the rest of the page, which re-aggregates per tab) since a goal's scope
+is its own explicit setting, not the page's ambient one. `app/components/ObjectiveCard.tsx` is the one
+client component needed (a delete button calling `router.refresh()` after `DELETE`); everything else
+stays server-rendered.
+
+**The strength callout** (`lib/progress.ts`'s `getStrengthSummary()`, `app/components/
+StrengthCallout.tsx`): turns the already-computed, already-sorted `sectionAverages` ranking into a
+named headline ("The Smooth Talker — your Delivery averages 3.1/5, your strongest section") plus a
+paired growth-area line for the weakest section, instead of leaving that information sitting in a bar
+chart the user has to interpret themselves. Deliberately takes `ProgressStats` as its input rather than
+raw rows, so it works unchanged whether `stats` is the unfiltered "All modes" view or one already
+filtered to a single mode tab — "your best skill overall" and "your best skill in Debate" are the same
+function call against differently-scoped data. Six section-to-title mappings (Storyteller/Smooth
+Talker/Specific One/Engager/Tailored Candidate/Debater), no per-mode variation attempted — kept simple
+rather than building a combinatorial persona system for a request that was really about making an
+existing number-based ranking read as something about the user, not a scoreboard.
+
+The existing section/mode bar charts (`CategoryBarChart.tsx`) gained explicit `#1`/`#2`/... rank
+prefixes — the literal "show some ranking" ask, a small change since the data was already sorted
+descending.
+
+Verified live against the real accumulated session history (12+ graded sessions): created one
+structured goal ("Sharper Debate Delivery," Delivery/Debate -> 4.5/5) and one free-text aspiration
+("Nail my interview on March 3rd," scoped to Interview) via the API, confirmed both rendered correctly
+on `/app/insights` — the structured goal showed a live 67% progress bar (3.0/4.5, matching the real
+Debate-mode Delivery average) with a real Delivery fix as advice; the aspiration showed "tracking 1
+session, no fixed number" with a real Structure fix pulled from the actual interview session — then
+deleted both as test data. Strength callout correctly read "The Smooth Talker" (Delivery, 3.1/5
+overall) with "Biggest room to grow: Argumentation, averaging 2.0/5." `tsc --noEmit` and `eslint` both
+clean.
+
+---
+
+## 34. "Suggest targets for me" — LLM-assisted goal-target mapping
+
+Real usage of §33 immediately surfaced the actual gap: a free-text-only goal ("I want to get better
+at negotiating") has no path to a hard number at all unless the user already knows which of the nine
+`ObjectiveMetric`s and which mode/section maps to what they typed — and if they knew that, they'd
+have just picked it themselves in the form. The user's own framing: "I cannot give a number since I
+am not gaming, I just know my goal."
+
+**Explicit instruction on model choice**: use the local Ollama model if it's accurate enough,
+otherwise OpenRouter — and no Groq in this chain (Groq is the app's speed-first choice for the
+latency-sensitive conversation/grading path; this is a one-time, on-demand click, not something the
+user is waiting on mid-session, so accuracy mattered more than shaving another few hundred ms).
+Benchmarked head-to-head before picking, same discipline as §15/§24 — three real free-text goals
+("get better at negotiating," a Google-interview goal with a note, "become a more confident public
+speaker") through both `llama3.2` (local) and OpenRouter's `google/gemma-4-26b-a4b-it:free`, same
+prompt, same validation. Both produced syntactically valid JSON every single time — the gap was
+entirely semantic:
+
+- `llama3.2` never connected "negotiating" to Argumentation/Debate at all (missed the single most
+  obvious mapping in the whole test set), and for "confident public speaker" it suggested
+  `contextFit` — a metric specifically about job-description/resume alignment, unrelated to
+  confidence — and defaulted twice to Conversation mode rather than the more fitting Speech/Orator.
+- `google/gemma-4-26b-a4b-it` correctly led with Argumentation/Debate for negotiating ("Negotiation
+  requires building strong claims with evidence and maintaining composure under pushback"), correctly
+  used Speech mode for the public-speaking goal instead of a generic default, and picked up the
+  interview goal's note detail ("backend engineering role") into its `contextFit` rationale.
+
+Picked OpenRouter as primary, local Ollama as fallback for this one call site — the reverse of
+conversation/grading's Groq-first order, and a deliberate exception to it, not an inconsistency.
+
+**New file `lib/objectiveSuggestion.ts`** — a third LLM call site alongside `lib/conversation.ts`/
+`lib/grading.ts`, but shaped differently: on-demand (a "Suggest targets for me" button on a goalless
+`ObjectiveCard`, not part of any automatic pass), returns up to 3 suggestions, and validates every
+field against the exact same enums the manual goal-creation form already enforces (`VALID_METRICS`,
+`VALID_MODES`, `VALID_SECTION_KEYS`) rather than trusting the model's JSON verbatim — a locked-mode
+metric's suggested `mode` is silently overridden to the real constraint (reusing `lib/objectives.ts`'s
+now-exported `METRIC_META`, one source of truth rather than a second copy that could drift), and a
+`targetValue` outside the metric's sane bounds (1-5 for scores, 60-260 for wpm, 0-100 for percentages)
+is clamped rather than trusted — the same "never trust an LLM's unverified claim" posture
+`validateQuotedMoment()` (§13) established for grading. A suggestion missing a required field is
+dropped individually rather than failing the whole batch; total failure returns an empty array so the
+UI shows a plain retry message instead of an error page.
+
+**Flow**: `POST /api/objectives/suggest` (standalone — takes `{title, note}`, not tied to an existing
+objective id, so it could later be reused from the creation form too) returns validated suggestions;
+picking one calls the new `PATCH /api/objectives/[id]` (added alongside the existing GET/DELETE,
+`lib/store.ts` gained a matching `getObjective()`) to apply that suggestion's metric/mode/sectionKey/
+targetValue to the existing objective. `ObjectiveCard.tsx` owns the whole interaction — fetch, render
+each suggestion with its one-sentence rationale, apply, `router.refresh()` — no changes needed to the
+Insights page itself.
+
+Verified live end-to-end through the real running app (not a unit test): recreated the user's exact
+goal ("I want to get better at negotiating," no target) via the API, called
+`POST /api/objectives/suggest` through the actual route and got back the same three-suggestion result
+from the benchmark (Argumentation/Debate -> 4/5 leading), applied the top suggestion via `PATCH`, and
+confirmed `/app/insights` rendered a live 50% progress bar (2.0/5 -> 4.0/5) with a real Argumentation
+fix as advice. Caught and corrected a real mistake while testing: the user's actual pre-existing goal
+(same title, created earlier through the UI, still goalless) was sitting in the same objectives store
+— deleted only the test duplicate I'd created, left the user's real one untouched. `tsc --noEmit` and
+`eslint` both clean.
+
+---
+
+## 35. Goals become multi-target: edit and add-alongside, not replace-only
+
+Real usage of §34 immediately surfaced the actual shape problem: once a target was set (manually or
+via a suggestion), the objective was stuck — no way to edit it, and no way to add a second target from
+another suggestion without overwriting the first. The user's own framing: "the moment i set the
+target, it does not allow me to edit or set multiple targets based on the suggestion. That should be
+allowed."
+
+**Root cause, not a UI bug**: `Objective` (`lib/types.ts`) modeled a single `metric`/`mode`/
+`sectionKey`/`targetValue` set directly on the goal. There was no second target to add, and nothing to
+key an edit off of.
+
+**Fix: `Objective.targets: ObjectiveTarget[]`** — a goal now holds zero or more independent targets,
+each with its own `id`, `metric`, `mode`, `sectionKey`, `targetValue`. `targets: []` is still exactly
+§34's free-text-aspiration state (no hard number yet); one entry is the old single-target shape from
+§33/§34; two or more is the actually-requested case. `lib/objectives.ts`'s `computeObjectiveProgress()`
+now scores each target independently (`ObjectiveTargetProgress`, one per target — its own current
+value, progress %, trend, and advice) rather than computing one number for the whole objective, so
+adding/editing/removing one target never touches the others' computed state.
+
+**Validation centralized, not duplicated**: `lib/objectives.ts` gained `parseObjectiveTarget()` — the
+one place that checks a raw target payload against the real metric/mode/section enums, enforces
+locked-mode metrics' real mode regardless of what was passed, clamps `targetValue` into sane bounds
+(`clampTargetValue()`), and assigns a fresh id when one isn't provided (editing an existing target
+passes its id through; adding a new one, whether manual or from a suggestion, doesn't). Both
+`app/api/objectives/route.ts` (create) and the new `PATCH /api/objectives/[id]` (replace the whole
+`targets` array in one call — add/edit/remove all funnel through this single endpoint, matching
+`lib/store.ts`'s existing whole-file-overwrite convention rather than three separate sub-resource
+routes) call it, and `lib/objectiveSuggestion.ts`'s suggestion validator was rewritten to call it too
+instead of keeping its own second copy of the same enum/clamp logic — one source of truth for what a
+valid target looks like, LLM-suggested or hand-entered. `app/components/objectiveTargetOptions.ts` is
+the matching client-side single source for the metric/section/mode picker options, shared between
+`ObjectiveForm.tsx` (creation, still just 0-or-1 initial target) and the new `TargetEditor` inside
+`ObjectiveCard.tsx` (used for both "add a target" and "edit this target" — same form, same validation,
+different save target).
+
+**`ObjectiveCard.tsx` reworked around a target list**: each target renders as its own row (progress
+bar or "no qualifying sessions yet," its own advice line, `edit`/`×` inline) rather than the goal
+having one combined state. "Suggest targets for me" no longer disappears once a target exists — it's
+always available, and applying a suggestion now calls the same add-a-target path as the manual "+ Add
+a target" button, so multiple suggestions can be applied one after another (each gets its own
+"Added ✓" marker once applied, rather than only ever offering one).
+
+**One real data migration, done by hand, not a shim**: the user's actual pre-existing goal ("I want to
+get better at negotiating," a real `hedgePct -> 5%` target they'd set themselves between sessions) was
+sitting on disk in the old single-target shape. Rather than write permanent migration-compatibility
+code into the app for what's local, gitignored dev data with exactly one affected file (per this
+project's own stance against backwards-compatibility shims — see the intro), the one file was read and
+rewritten by hand into the new `targets: []` array shape, preserving the real target as its first
+entry with a freshly generated id.
+
+Verified live end-to-end against that real, migrated goal: confirmed it still loaded correctly through
+`GET /api/objectives` post-migration; added a second target (Argumentation/Debate -> 4/5, from a fresh
+suggestion) via `PATCH` alongside the existing `hedgePct` target — both now render as independent
+progress bars on `/app/insights` (100% and 50% respectively) with their own advice lines; edited the
+`hedgePct` target's value from 5 to 3 in place (id preserved, the other target untouched); added a
+throwaway third target and removed just that one, confirming the real two survive intact. `tsc
+--noEmit` and `eslint` both clean.
+
+---
+
+## 36. A suggestion shouldn't repeat a target that's already there
+
+Immediate follow-up bug from real use of §35: after applying a suggestion, clicking "Suggest targets
+for me" again could hand back the exact same metric/mode/section the user had just added — the
+screenshot showed "Argumentation in Debate" listed as both a real, already-tracked target *and* a
+still-clickable "Add this target" suggestion below it. Root cause: `suggestObjectiveTargets()`
+(`lib/objectiveSuggestion.ts`) had no idea what the goal already had — every call started from
+scratch, so nothing stopped the LLM from re-proposing something already on the card.
+
+Fixed with a belt-and-suspenders pair, not just a prompt tweak (a prompt instruction alone isn't a
+guarantee, per this app's own repeated experience with models not perfectly following instructions —
+§13's `validateQuotedMoment()`, §16's parse-failure logging, this very feature's §34 clamping):
+
+- **Prompt-level**: `suggestObjectiveTargets()` now takes an `existingTargets: ObjectiveTarget[]`
+  parameter; `buildPrompt()` lists them explicitly ("already tracking these targets — do NOT suggest
+  any of these again, suggest different ones instead") so the model spends its 2-3 suggestion slots on
+  genuinely new ideas rather than wasting one on a repeat that would just get filtered out anyway.
+- **Guaranteed, not requested**: after validating the model's response, the result is unconditionally
+  filtered against `existingTargets` by (`metric`, `mode`, `sectionKey`) shape — `targetValue` isn't
+  part of the identity check, since "Argumentation in Debate → 4.5" when 4.0 is already tracked is
+  still the same underlying thing to edit, not a second thing to add. This filter runs regardless of
+  whether the model honored the prompt instruction, so a repeat can never reach the client even if the
+  LLM ignores the instruction.
+- **Client-side, derived not stored**: `ObjectiveCard.tsx` dropped the `appliedIndices` tracking state
+  from §34/§35 in favor of computing `visibleSuggestions` fresh on every render — filtering the
+  currently-held `suggestions` list against the live `objective.targets` prop. This is strictly more
+  robust than a one-shot "mark this index as applied" flag: it also correctly hides a suggestion that
+  was fetched in an *earlier* browser session (before the server-side filter existed, or before that
+  particular target was added by some other means), since it re-checks against the real current data
+  on every render rather than only reacting to a click made in the same session. A "↻ suggest again"
+  link was added alongside the list — previously there was no way to re-fetch once a batch was shown.
+
+Verified live: sent the real goal's two actual existing targets (`hedgePct`, `Argumentation`/Debate) as
+`existingTargets` to `POST /api/objectives/suggest` and confirmed the three suggestions that came back
+were all genuinely different (Content/Debate, pace/Debate, question-rate/Conversation) — neither
+existing target reappeared, both from the prompt instruction working and, independently, from the
+unconditional filter. `tsc --noEmit` and `eslint` both clean.
+
+---
+
+## 37. Auditing every LLM call site for unnecessary calls
+
+Asked directly, generally: "how do we make sure we do not call LLM unnecessarily... anywhere else in
+application." A grep for `chatCompletion(` (`lib/llm.ts`'s one shared entry point) confirms there are
+exactly three call sites, no others — `lib/conversation.ts` (the live turn), `lib/grading.ts` (the
+grading pass), `lib/objectiveSuggestion.ts` (§34's goal-target suggestion). Audited each:
+
+- **Conversation** (`lib/conversation.ts`) — every call is a genuine live turn the user is waiting on;
+  there's no batching/caching angle here since each reply is necessarily unique to what was just said.
+  Not a waste-reduction target, it's the core product.
+- **Objective suggestion** (`lib/objectiveSuggestion.ts`) — already gated behind an explicit
+  "Suggest targets for me" click, with `disabled={suggesting}` preventing a second click while one is
+  in flight (`app/components/ObjectiveCard.tsx`). No auto-trigger anywhere (no `useEffect` calling it on
+  mount/render). Already correctly minimal.
+- **Grading** (`lib/grading.ts`), via `/api/sessions/[id]/end` and `/api/sessions/[id]/pause` — `/end`
+  was already fully idempotent (`getFeedback(id)` cache-checked before ever calling the LLM, since
+  ending is terminal and existing feedback can never go stale). **`/pause` had no equivalent guard** —
+  every call re-graded from scratch, even with zero new turns since the last pause (a double-click, or
+  navigating back to the session and immediately pausing again without saying anything new). This was
+  the one real, fixable gap, not a hypothetical one.
+
+**Fix**: `Feedback` (`lib/types.ts`) gained `gradedTurnCount?: number` — `session.turns.length` at the
+moment that feedback was generated, stamped by both `gradeSession()` and `emptyTranscriptFeedback()`
+(`lib/grading.ts`). `/api/sessions/[id]/pause` now checks it before doing anything else: if cached
+feedback exists, its `gradedTurnCount` matches the session's current turn count, *and* it didn't
+previously fail, return the cached feedback with zero LLM calls. Deliberately does **not** skip when
+the cached feedback's own `gradingFailed` is true — a failure is often transient (a provider hiccup),
+so a repeat pause with no new turns should still get a real retry rather than being stuck serving a
+stale "grading unavailable" placeholder indefinitely. `gradedTurnCount` is optional specifically so
+older feedback files written before this field existed don't need a migration — missing just means
+"always regrade," the safe direction to fail in (one possible extra call, never a stale result shown as
+fresh).
+
+Verified live against a real running session, not synthesized: created a session, posted one user turn,
+paused (`gradedTurnCount: 3`, real grading call, confirmed via the daily LLM log's `grading`-labeled
+entry count going 4 -> 5), paused again immediately with no new turns (log count stayed at 5 — zero
+LLM calls, cached feedback returned), then posted a second turn and paused a third time (log count went
+5 -> 6, confirming a genuine change still triggers a real regrade rather than the guard becoming a
+permanent cache). Test session deleted afterward. `tsc --noEmit` and `eslint` both clean.
+
+---
+
+## 38. A goal target's advice has to actually be about that target
+
+Directly reported against a real screenshot: the "Hedging words" target's advice read "Insert a pause
+after 'million years' to give the audience time to absorb the point and improve rhythm" — accurate-
+sounding, but not actually about hedging at all. Root cause: `computeTargetProgress`
+(`lib/objectives.ts`) sourced every non-score metric's advice via `latestFixFor(meta.adviceSection,
+...)`, which grabs the most recent LLM fix for the whole *Delivery* section — a section that also
+covers pace and pauses, so whatever the model happened to write about there (in this case, rhythm) is
+what showed up, whether or not it was about the specific metric being tracked. Separately asked to
+verify: does the app tell you *which mode* to practice for a given target? For a mode-scoped target
+("Argumentation in Debate") the mode was already in the label; for an unscoped one ("Hedging words")
+nothing said "any mode" — it just said nothing, silently.
+
+**Fix 1 — advice grounded in the metric itself, not the section**: new `deterministicAdviceFor()` in
+`lib/objectives.ts` computes advice directly from the real counted data (`lib/deliveryMetrics.ts`'s
+`fillerBreakdown`/`hedgeBreakdown`, `contentMetrics.ts`'s `ttrPct`, `conversationMetrics.ts`'s
+`talkTimePct`/`questionRatePct`, `pitchMetrics.ts`'s `computePitchTiming`) for the single most recent
+qualifying session — no LLM call, same "measured, not fabricated" discipline as every deterministic
+number already in this app, and this ties directly into §37's theme: it's not just avoiding an
+*unnecessary* LLM call, it's strictly more accurate than the LLM-fix-reuse it replaces, since it can
+never be about the wrong thing within the same section. `overallScore`/`sectionScore` are the two
+metrics that still use `latestFixFor` — a holistic score genuinely has no better source than the real
+fix written for exactly that section, so that path is unchanged.
+
+**Fix 2 — mode always stated, never silently omitted**: `ObjectiveCard.tsx`'s `targetLabel()` now
+renders `(any mode)` explicitly when a target has no mode scope, instead of appending nothing. Every
+target now answers "which mode should I be practicing this in" at a glance, one way or the other.
+
+Verified live against the real "I want to get better at negotiating" goal: the "Hedging words (any
+mode)" target's advice changed from the unrelated pause/rhythm text to "No hedging words caught in your
+last Orator session — keep this up" (honest, since that real session genuinely had zero) — then, to
+confirm the non-empty branch names real words rather than just handling the zero case, created a test
+session with three deliberate hedges ("just" x2, "I guess" x1), graded it, and confirmed the advice
+became "In your last Conversation session you used \"just\" (2x) and \"i guess\" (1x) — 5 hedging words
+across 23 words (21.7%). Replace those with direct statements" — then deleted the test session and
+confirmed the goal's "based on N sessions" count and advice both reverted cleanly (13 -> 12, back to the
+honest zero-hedge state). `tsc --noEmit` and `eslint` both clean.

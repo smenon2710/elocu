@@ -15,8 +15,9 @@ export function CategoryBarChart({ data, max = 5 }: { data: CategoryAverage[]; m
 
   return (
     <div className="space-y-3">
-      {data.map((d) => (
+      {data.map((d, i) => (
         <div key={d.key} className="group flex items-center gap-3">
+          <span className="w-5 shrink-0 text-right font-mono text-xs text-parchment-500/60">#{i + 1}</span>
           <span className="w-28 shrink-0 truncate text-sm text-parchment-500">{d.label}</span>
           <div className="relative h-3 flex-1 rounded-full bg-ink-900">
             <div

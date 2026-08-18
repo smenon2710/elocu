@@ -5,15 +5,20 @@ import {
   computePitchTimingStats,
   computeProgressStats,
   distinctModes,
+  getStrengthSummary,
   MODE_LABELS,
   type CategoryAverage,
   type TrendDirection,
 } from "@/lib/progress";
-import { listAllFeedback } from "@/lib/store";
+import { computeObjectiveProgress } from "@/lib/objectives";
+import { listAllFeedback, listObjectives } from "@/lib/store";
 import type { SessionMode } from "@/lib/types";
 import { CategoryBarChart } from "@/app/components/charts/CategoryBarChart";
 import { TrendLineChart } from "@/app/components/charts/TrendLineChart";
 import { TrendArrow } from "@/app/components/TrendArrow";
+import { StrengthCallout } from "@/app/components/StrengthCallout";
+import { ObjectiveCard } from "@/app/components/ObjectiveCard";
+import { ObjectiveForm } from "@/app/components/ObjectiveForm";
 
 const VALID_MODES: SessionMode[] = ["interview", "conversation", "speech", "orator", "debate", "pitch"];
 
@@ -80,12 +85,19 @@ function TabLink({ href, active, children }: { href: string; active: boolean; ch
 
 export default async function InsightsPage({ searchParams }: { searchParams: Promise<{ mode?: string }> }) {
   const { mode: modeParam } = await searchParams;
-  const allRows = await listAllFeedback();
+  const [allRows, objectives] = await Promise.all([listAllFeedback(), listObjectives()]);
   const availableModes = distinctModes(allRows);
   const selectedMode: SessionMode | null =
     modeParam && VALID_MODES.includes(modeParam as SessionMode) && availableModes.includes(modeParam as SessionMode)
       ? (modeParam as SessionMode)
       : null;
+
+  // Objectives are tracked against the whole history, independent of the
+  // page's own mode-tab filter below — always the full `allRows`, never `rows`.
+  const objectiveProgress = objectives.map((objective) => ({
+    objective,
+    progress: computeObjectiveProgress(objective, allRows),
+  }));
 
   if (allRows.length === 0) {
     return (
@@ -102,6 +114,20 @@ export default async function InsightsPage({ searchParams }: { searchParams: Pro
         >
           Start a session
         </Link>
+
+        <section className="mt-8">
+          <h2 className="font-display text-lg text-parchment-100">Your goals</h2>
+          {objectiveProgress.length > 0 && (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              {objectiveProgress.map(({ objective, progress }) => (
+                <ObjectiveCard key={objective.id} objective={objective} progress={progress} />
+              ))}
+            </div>
+          )}
+          <div className="mt-3">
+            <ObjectiveForm />
+          </div>
+        </section>
       </main>
     );
   }
@@ -111,6 +137,11 @@ export default async function InsightsPage({ searchParams }: { searchParams: Pro
   const excludedCount = stats.totalCompleted - stats.validCount;
   const topMode = stats.modeAverages[0];
   const bestSection = stats.sectionAverages[0];
+  const strength = getStrengthSummary(stats);
+  const modeContext =
+    !selectedMode && topMode && stats.modeAverages.length > 1
+      ? `Across every mode, you're strongest in ${topMode.label} (${topMode.average.toFixed(1)}/5).`
+      : null;
 
   const deliveryStats = computeDeliveryMetricStats(rows);
   const deliveryTiles = [deliveryStats.wpm, deliveryStats.fillerPct, deliveryStats.hedgePct, deliveryStats.ttrPct].filter(
@@ -168,6 +199,31 @@ export default async function InsightsPage({ searchParams }: { searchParams: Pro
           />
         )}
       </div>
+
+      {strength && (
+        <div className="mt-6">
+          <StrengthCallout summary={strength} modeContext={modeContext} />
+        </div>
+      )}
+
+      <section className="mt-10">
+        <h2 className="font-display text-lg text-parchment-100">Your goals</h2>
+        {objectiveProgress.length === 0 ? (
+          <p className="mt-1 text-sm text-parchment-500">
+            Set a goal to track progress toward something specific — a skill target, a real-world
+            deadline, or just a note to yourself.
+          </p>
+        ) : (
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {objectiveProgress.map(({ objective, progress }) => (
+              <ObjectiveCard key={objective.id} objective={objective} progress={progress} />
+            ))}
+          </div>
+        )}
+        <div className="mt-3">
+          <ObjectiveForm />
+        </div>
+      </section>
 
       {stats.trend.length >= 2 ? (
         <section className="mt-10">

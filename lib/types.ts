@@ -72,6 +72,65 @@ export interface Feedback {
   gradingFailed?: boolean;
   /** True when the session ended with no user turns at all — nothing to grade, not a failure. */
   emptyTranscript?: boolean;
+  /**
+   * `session.turns.length` at the moment this was generated. Lets
+   * `/api/sessions/[id]/pause` (see lib/grading.ts) skip a redundant
+   * grading LLM call when nothing's been added since the last pause,
+   * without needing a separate versioning scheme. Optional because
+   * feedback generated before this field existed won't have it — treated
+   * as "always regrade" rather than backfilled, since a stale one-time
+   * miss costs one extra call, not correctness.
+   */
+  gradedTurnCount?: number;
+}
+
+export type ObjectiveMetric =
+  | "overallScore"
+  | "sectionScore"
+  | "wpm"
+  | "fillerPct"
+  | "hedgePct"
+  | "ttrPct"
+  | "talkTimePct"
+  | "questionRatePct"
+  | "pitchOnTargetPct";
+
+/**
+ * One structured, trackable target under an Objective — e.g. "Argumentation
+ * score in Debate -> 4.5/5." An Objective can hold several of these in
+ * parallel (add one manually, or from an LLM suggestion — see
+ * lib/objectiveSuggestion.ts), each with its own id so it can be edited or
+ * removed independently without disturbing the others.
+ */
+export interface ObjectiveTarget {
+  id: string;
+  metric: ObjectiveMetric;
+  /** Scopes the metric to one mode (e.g. only Debate sessions). Ignored for
+   * metrics that are inherently mode-locked already (talkTimePct/
+   * questionRatePct -> conversation, pitchOnTargetPct -> pitch). */
+  mode: SessionMode | null;
+  /** Only meaningful when metric === "sectionScore". */
+  sectionKey: keyof FeedbackSections | null;
+  targetValue: number;
+}
+
+/**
+ * A user-declared aspiration tracked against real accumulated practice data
+ * on /app/insights — distinct from Session.goalLabel above, which groups
+ * repeated attempts at one specific thing ("Pitch to Dale Carnegie"). An
+ * Objective is a broader target ("get better at Debate," "hit 150wpm")
+ * measured across every qualifying session, not one practice thread.
+ * `targets: []` means a pure free-text aspiration with no hard number(s) to
+ * track yet — see lib/objectives.ts for how progress is computed either way.
+ */
+export interface Objective {
+  id: string;
+  userId: string;
+  createdAt: number;
+  title: string;
+  note: string | null;
+  /** Zero or more structured targets tracked in parallel under this one goal. */
+  targets: ObjectiveTarget[];
 }
 
 export const LOCAL_USER_ID = "local-user";

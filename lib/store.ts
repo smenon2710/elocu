@@ -1,8 +1,9 @@
 import { promises as fs } from "fs";
 import path from "path";
-import type { Session, SessionMode, Feedback, FeedbackSections, TranscriptTurn } from "./types";
+import type { Objective, Session, SessionMode, Feedback, FeedbackSections, TranscriptTurn } from "./types";
 
 const SESSIONS_DIR = path.join(process.cwd(), "data", "sessions");
+const OBJECTIVES_DIR = path.join(process.cwd(), "data", "objectives");
 
 async function ensureDir() {
   await fs.mkdir(SESSIONS_DIR, { recursive: true });
@@ -230,4 +231,53 @@ export async function deleteSession(id: string): Promise<void> {
     fs.unlink(sessionPath(id)).catch(() => {}),
     fs.unlink(feedbackPath(id)).catch(() => {}),
   ]);
+}
+
+async function ensureObjectivesDir() {
+  await fs.mkdir(OBJECTIVES_DIR, { recursive: true });
+}
+
+const objectivePath = (id: string) => path.join(OBJECTIVES_DIR, `${id}.json`);
+
+export async function saveObjective(objective: Objective): Promise<void> {
+  await ensureObjectivesDir();
+  await fs.writeFile(objectivePath(objective.id), JSON.stringify(objective, null, 2));
+}
+
+export async function getObjective(id: string): Promise<Objective | null> {
+  try {
+    const raw = await fs.readFile(objectivePath(id), "utf-8");
+    return JSON.parse(raw) as Objective;
+  } catch {
+    return null;
+  }
+}
+
+/** Every tracked objective, most recently created first — powers /app/insights' goals section. */
+export async function listObjectives(): Promise<Objective[]> {
+  let files: string[];
+  try {
+    files = await fs.readdir(OBJECTIVES_DIR);
+  } catch {
+    return [];
+  }
+
+  const objectives = await Promise.all(
+    files
+      .filter((f) => f.endsWith(".json"))
+      .map(async (f) => {
+        try {
+          const raw = await fs.readFile(path.join(OBJECTIVES_DIR, f), "utf-8");
+          return JSON.parse(raw) as Objective;
+        } catch {
+          return null;
+        }
+      })
+  );
+
+  return objectives.filter((o): o is Objective => o !== null).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function deleteObjective(id: string): Promise<void> {
+  await fs.unlink(objectivePath(id)).catch(() => {});
 }

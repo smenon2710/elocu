@@ -311,6 +311,7 @@ export function emptyTranscriptFeedback(session: Session): Feedback {
     generatedAt: Date.now(),
     sections,
     emptyTranscript: true,
+    gradedTurnCount: session.turns.length,
   };
 }
 
@@ -405,5 +406,6 @@ export async function gradeSession(session: Session): Promise<Feedback> {
     generatedAt: Date.now(),
     sections,
     gradingFailed,
+    gradedTurnCount: session.turns.length,
   };
 }

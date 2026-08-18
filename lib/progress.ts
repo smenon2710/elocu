@@ -367,6 +367,48 @@ export function computePitchTimingStats(rows: FeedbackWithSession[]): PitchTimin
   };
 }
 
+// Identity-style names for the top-scoring section — turns "your best
+// section is Argumentation, 4.3/5" (a bare ranking entry) into something a
+// person actually wants to read, per direct feedback that the ranking
+// already on the page wasn't engaging on its own.
+const SECTION_TITLES: Record<string, string> = {
+  structure: "The Storyteller",
+  delivery: "The Smooth Talker",
+  content: "The Specific One",
+  engagement: "The Engager",
+  contextFit: "The Tailored Candidate",
+  argumentation: "The Debater",
+};
+
+export interface StrengthSummary {
+  title: string;
+  headline: string;
+  growthLine: string | null;
+}
+
+/**
+ * Turns `stats.sectionAverages` (already computed, already sorted) into a
+ * headline strength + a growth-area callout. Works against whatever scope
+ * `stats` was computed with — pass mode-filtered stats to get "your best
+ * skill in Debate," unfiltered stats for "your best skill overall" — so
+ * this needs no extra scoping logic of its own.
+ */
+export function getStrengthSummary(stats: ProgressStats): StrengthSummary | null {
+  const best = stats.sectionAverages[0];
+  if (!best) return null;
+
+  const title = SECTION_TITLES[best.key] ?? "The Practicer";
+  const headline = `Your ${best.label} averages ${best.average.toFixed(1)}/5 — your strongest section.`;
+
+  const worst = stats.sectionAverages[stats.sectionAverages.length - 1];
+  const growthLine =
+    worst && worst.key !== best.key
+      ? `Biggest room to grow: ${worst.label}, averaging ${worst.average.toFixed(1)}/5.`
+      : null;
+
+  return { title, headline, growthLine };
+}
+
 /** Distinct modes actually present in `rows`, most-recent-first by their latest session — powers the insights page's mode tabs (only tabs with real data are shown). */
 export function distinctModes(rows: FeedbackWithSession[]): SessionMode[] {
   const lastSeen = new Map<SessionMode, number>();
