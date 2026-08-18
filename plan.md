@@ -858,3 +858,34 @@ the page → same voice still selected) confirmed working. Deliberately scoped t
 preference, not per-mode auto-varied voices (a "Debate opponent sounds assertive, Interview sounds
 professional" idea raised alongside this one) — browser voices carry no personality/character
 metadata to key that kind of selection off of; that idea fits the cloud-TTS tier, not this one.
+
+---
+
+## 30. Trend arrows on every Insights metric
+
+Every number on `/app/insights` was a snapshot — no way to tell at a glance whether a given metric
+was actually improving. Added a green ▲ / red ▼ / neutral `±0` next to every stat: overall average,
+each section score, each mode average, and every §28 delivery/conversation/pitch-timing tile.
+
+**The arrow's color always means "trending the way this specific metric's own documented guidance
+says is good," never just "the raw number went up."** That distinction mattered concretely: WPM and
+talk-time both already have a *target range* elsewhere in the app (the feedback page's `Metric`
+tooltips, §26 — ~150-160 wpm, ~40-55% talk-time), not a "more is better" direction, and pitch timing's
+own tooltip explicitly warns that running under budget isn't automatically a win either. A naive
+"number went up = green" would have been quietly wrong for exactly these three metrics — filler%/
+hedge% are `lower-better`, most scores are `higher-better`, but WPM/talk-time/pitch-timing-deviation
+are all `closer-to-target` (§26/§28's own already-established target values reused here, not
+reinvented: 155 wpm, 47.5% talk-time, 0s pitch deviation). `lib/progress.ts`'s new `computeTrend()`
+takes an explicit `Goodness` direction per metric for exactly this reason.
+
+Comparison basis: chronological first-half vs. second-half average (not last-session-vs-previous,
+which would bounce around on one noisy data point), gated behind a 4-point minimum and a
+per-metric-type noise threshold (0.15 for /5 scores, 3 points for percentages, 5 wpm, 3 seconds) so a
+trivial wobble doesn't render as a false arrow — same "don't show a number that isn't trustworthy"
+discipline as every other real metric in this app, extended to trends themselves.
+
+Verified live: the Delivery section correctly showed Pace trending ▼ red (drifting *further* from the
+155 wpm target over the session history) while Filler/Hedge words sat at neutral `±0` and Vocabulary
+diversity trended ▲ green in that same view — confirming the three different `Goodness` modes
+(closer-to-target, lower-better, higher-better) are each actually being applied per-metric rather than
+one blanket "up is good" rule, exactly as designed.

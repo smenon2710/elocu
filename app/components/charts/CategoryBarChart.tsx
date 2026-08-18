@@ -1,6 +1,7 @@
 "use client";
 
 import type { CategoryAverage } from "@/lib/progress";
+import { TrendArrow } from "@/app/components/TrendArrow";
 
 /**
  * One measure (an average score) across named categories — a single
@@ -28,6 +29,9 @@ export function CategoryBarChart({ data, max = 5 }: { data: CategoryAverage[]; m
             style={{ fontVariantNumeric: "tabular-nums" }}
           >
             {d.average.toFixed(1)}
+          </span>
+          <span className="w-6 shrink-0 text-center">
+            <TrendArrow trend={d.trend} />
           </span>
           <span className="w-16 shrink-0 font-mono text-xs text-parchment-500/70 opacity-0 transition-opacity group-hover:opacity-100">
             {d.count} sess.

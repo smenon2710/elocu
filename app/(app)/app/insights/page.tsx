@@ -7,18 +7,33 @@ import {
   distinctModes,
   MODE_LABELS,
   type CategoryAverage,
+  type TrendDirection,
 } from "@/lib/progress";
 import { listAllFeedback } from "@/lib/store";
 import type { SessionMode } from "@/lib/types";
 import { CategoryBarChart } from "@/app/components/charts/CategoryBarChart";
 import { TrendLineChart } from "@/app/components/charts/TrendLineChart";
+import { TrendArrow } from "@/app/components/TrendArrow";
 
 const VALID_MODES: SessionMode[] = ["interview", "conversation", "speech", "orator", "debate", "pitch"];
 
-function StatTile({ label, value, caption }: { label: string; value: string; caption?: string }) {
+function StatTile({
+  label,
+  value,
+  caption,
+  trend,
+}: {
+  label: string;
+  value: string;
+  caption?: string;
+  trend?: TrendDirection | null;
+}) {
   return (
     <div className="rounded-xl border border-hairline bg-ink-800 p-5">
-      <p className="font-mono text-xs tracking-[0.15em] text-parchment-500 uppercase">{label}</p>
+      <div className="flex items-center justify-between">
+        <p className="font-mono text-xs tracking-[0.15em] text-parchment-500 uppercase">{label}</p>
+        {trend !== undefined && <TrendArrow trend={trend} />}
+      </div>
       <p className="mt-2 font-display text-3xl text-parchment-100" style={{ fontVariantNumeric: "tabular-nums" }}>
         {value}
       </p>
@@ -37,7 +52,10 @@ function formatCategoryValue(d: CategoryAverage): string {
 function MetricTile({ stat }: { stat: CategoryAverage }) {
   return (
     <div className="rounded-xl border border-hairline bg-ink-800 p-4">
-      <p className="font-mono text-xs text-parchment-500">{stat.label}</p>
+      <div className="flex items-center justify-between">
+        <p className="font-mono text-xs text-parchment-500">{stat.label}</p>
+        <TrendArrow trend={stat.trend} />
+      </div>
       <p className="mt-1 font-display text-2xl text-parchment-100" style={{ fontVariantNumeric: "tabular-nums" }}>
         {formatCategoryValue(stat)}
         {stat.unit === "wpm" && <span className="ml-1 text-base text-parchment-500">wpm</span>}
@@ -133,6 +151,7 @@ export default async function InsightsPage({ searchParams }: { searchParams: Pro
         <StatTile
           label="Overall average"
           value={stats.overallAverage !== null ? `${stats.overallAverage.toFixed(1)} / 5` : "—"}
+          trend={stats.overallTrend}
         />
         <StatTile label="Sessions completed" value={String(stats.totalCompleted)} />
         {selectedMode ? (
@@ -215,7 +234,10 @@ export default async function InsightsPage({ searchParams }: { searchParams: Pro
           <p className="mt-1 text-sm text-parchment-500">How close your attempts land to the time budget you set.</p>
           <div className="mt-3 grid grid-cols-2 gap-3">
             <div className="rounded-xl border border-hairline bg-ink-800 p-4">
-              <p className="font-mono text-xs text-parchment-500">On average</p>
+              <div className="flex items-center justify-between">
+                <p className="font-mono text-xs text-parchment-500">On average</p>
+                <TrendArrow trend={pitchStats.avgDiffSecTrend} />
+              </div>
               <p className="mt-1 font-display text-2xl text-parchment-100">
                 {pitchStats.avgDiffSec > 0 ? "+" : ""}
                 {Math.round(pitchStats.avgDiffSec)}s
@@ -225,7 +247,10 @@ export default async function InsightsPage({ searchParams }: { searchParams: Pro
               </p>
             </div>
             <div className="rounded-xl border border-hairline bg-ink-800 p-4">
-              <p className="font-mono text-xs text-parchment-500">Landed on target</p>
+              <div className="flex items-center justify-between">
+                <p className="font-mono text-xs text-parchment-500">Landed on target</p>
+                <TrendArrow trend={pitchStats.onTargetRatePctTrend} />
+              </div>
               <p className="mt-1 font-display text-2xl text-parchment-100">
                 {pitchStats.onTargetRatePct !== null ? `${pitchStats.onTargetRatePct.toFixed(0)}%` : "—"}
               </p>

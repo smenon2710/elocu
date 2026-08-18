@@ -23,6 +23,52 @@ const SECTION_LABELS: Record<string, string> = {
   argumentation: "Argumentation",
 };
 
+export type TrendDirection = "up" | "down" | "flat";
+
+/**
+ * What "improving" means for a metric — not every number here is simply
+ * "bigger is better" (see lib/grading.ts's own tooltips: WPM and talk-time
+ * both have a target *range*, and running a pitch too far under budget is
+ * called out as its own problem, not a win). `up` always means "trending in
+ * the direction the app already tells you is good" for that specific
+ * metric, never just "the raw number went up" — the trend arrow's color is
+ * meaningful, not just directional.
+ */
+export type Goodness = "higher-better" | "lower-better" | { target: number };
+
+/**
+ * Chronological first-half vs. second-half comparison — smoother than
+ * last-vs-previous-single-session (which bounces around on one noisy data
+ * point) while still simple enough to explain. Needs at least 2 points in
+ * each half to say anything; returns null rather than guessing off too
+ * little data, same "don't show a number that isn't trustworthy" rule
+ * every other real metric in this app already follows.
+ */
+export function computeTrend(values: number[], goodness: Goodness, threshold: number): TrendDirection | null {
+  if (values.length < 4) return null;
+  const mid = Math.floor(values.length / 2);
+  const firstHalf = values.slice(0, mid);
+  const secondHalf = values.slice(mid);
+
+  const avg = (arr: number[]) => arr.reduce((sum, n) => sum + n, 0) / arr.length;
+  const firstAvg = avg(firstHalf);
+  const secondAvg = avg(secondHalf);
+
+  if (typeof goodness === "object") {
+    // Improvement = distance to target shrinking, regardless of which side of it you're on.
+    const improvement = Math.abs(firstAvg - goodness.target) - Math.abs(secondAvg - goodness.target);
+    if (improvement > threshold) return "up";
+    if (improvement < -threshold) return "down";
+    return "flat";
+  }
+
+  const diff = secondAvg - firstAvg;
+  const signed = goodness === "higher-better" ? diff : -diff;
+  if (signed > threshold) return "up";
+  if (signed < -threshold) return "down";
+  return "flat";
+}
+
 export interface CategoryAverage {
   key: string;
   label: string;
@@ -30,6 +76,8 @@ export interface CategoryAverage {
   count: number;
   /** How to render the number — "score" (x/5, the default) or a raw unit like "wpm"/"%"/"s". */
   unit?: "wpm" | "%" | "s";
+  /** null when there isn't enough chronological data (< 4 points) to say anything meaningful. */
+  trend?: TrendDirection | null;
 }
 
 export interface TrendPoint {
@@ -42,6 +90,7 @@ export interface ProgressStats {
   totalCompleted: number;
   validCount: number;
   overallAverage: number | null;
+  overallTrend: TrendDirection | null;
   sectionAverages: CategoryAverage[];
   modeAverages: CategoryAverage[];
   trend: TrendPoint[];
@@ -58,6 +107,20 @@ function average(values: number[]): number | null {
   return values.length > 0 ? values.reduce((sum, n) => sum + n, 0) / values.length : null;
 }
 
+// Minimum change (in each metric's own unit) between the first and second
+// half of the session history to count as a real trend rather than noise.
+const SCORE_TREND_THRESHOLD = 0.15; // out of 5
+const PCT_TREND_THRESHOLD = 3; // percentage points
+const WPM_TREND_THRESHOLD = 5;
+const SEC_TREND_THRESHOLD = 3;
+
+// Midpoints of the ranges already documented as "good" elsewhere in the app
+// (lib/grading.ts's objective-data blocks, the feedback page's Metric
+// tooltips) — reused here so a trend arrow can never contradict what the
+// per-session feedback already tells you about the same number.
+const WPM_TARGET = 155; // middle of the 150-160 comprehension-research range
+const TALK_TIME_TARGET = 47.5; // middle of the 40-55% balanced-conversation range
+
 /**
  * Aggregates raw per-session feedback into the numbers the insights page
  * shows. Only `valid` rows (not gradingFailed, not emptyTranscript) feed the
@@ -70,30 +133,42 @@ function average(values: number[]): number | null {
 export function computeProgressStats(rows: FeedbackWithSession[]): ProgressStats {
   const validRows = rows.filter((r) => r.valid);
 
-  const sectionTotals = new Map<string, { sum: number; count: number }>();
+  // Chronological value arrays per key (not just a running sum) — `rows` is
+  // already sorted oldest-first (lib/store.ts's listAllFeedback), and a
+  // trend needs the actual sequence, not just the total.
+  const sectionValues = new Map<string, number[]>();
   for (const row of validRows) {
     for (const [key, section] of Object.entries(row.sections)) {
       if (!section) continue;
-      const entry = sectionTotals.get(key) ?? { sum: 0, count: 0 };
-      entry.sum += section.score;
-      entry.count += 1;
-      sectionTotals.set(key, entry);
+      const arr = sectionValues.get(key) ?? [];
+      arr.push(section.score);
+      sectionValues.set(key, arr);
     }
   }
-  const sectionAverages: CategoryAverage[] = Array.from(sectionTotals.entries())
-    .map(([key, { sum, count }]) => ({ key, label: SECTION_LABELS[key] ?? key, average: sum / count, count }))
+  const sectionAverages: CategoryAverage[] = Array.from(sectionValues.entries())
+    .map(([key, values]) => ({
+      key,
+      label: SECTION_LABELS[key] ?? key,
+      average: average(values)!,
+      count: values.length,
+      trend: computeTrend(values, "higher-better", SCORE_TREND_THRESHOLD),
+    }))
     .sort((a, b) => b.average - a.average);
 
-  const modeTotals = new Map<SessionMode, { sum: number; count: number }>();
+  const modeValues = new Map<SessionMode, number[]>();
   for (const row of validRows) {
-    const avg = sessionAverage(row.sections);
-    const entry = modeTotals.get(row.mode) ?? { sum: 0, count: 0 };
-    entry.sum += avg;
-    entry.count += 1;
-    modeTotals.set(row.mode, entry);
+    const arr = modeValues.get(row.mode) ?? [];
+    arr.push(sessionAverage(row.sections));
+    modeValues.set(row.mode, arr);
   }
-  const modeAverages: CategoryAverage[] = Array.from(modeTotals.entries())
-    .map(([mode, { sum, count }]) => ({ key: mode, label: MODE_LABELS[mode], average: sum / count, count }))
+  const modeAverages: CategoryAverage[] = Array.from(modeValues.entries())
+    .map(([mode, values]) => ({
+      key: mode,
+      label: MODE_LABELS[mode],
+      average: average(values)!,
+      count: values.length,
+      trend: computeTrend(values, "higher-better", SCORE_TREND_THRESHOLD),
+    }))
     .sort((a, b) => b.average - a.average);
 
   const trend: TrendPoint[] = validRows.map((row) => ({
@@ -103,11 +178,17 @@ export function computeProgressStats(rows: FeedbackWithSession[]): ProgressStats
   }));
 
   const overallAverage = trend.length > 0 ? trend.reduce((sum, t) => sum + t.average, 0) / trend.length : null;
+  const overallTrend = computeTrend(
+    trend.map((t) => t.average),
+    "higher-better",
+    SCORE_TREND_THRESHOLD
+  );
 
   return {
     totalCompleted: rows.length,
     validCount: validRows.length,
     overallAverage,
+    overallTrend,
     sectionAverages,
     modeAverages,
     trend,
@@ -153,18 +234,49 @@ export function computeDeliveryMetricStats(rows: FeedbackWithSession[]): Deliver
   const ttrAvg = average(ttrValues);
 
   return {
-    wpm: wpmAvg !== null ? { key: "wpm", label: "Pace", average: wpmAvg, count: wpmValues.length, unit: "wpm" } : null,
+    wpm:
+      wpmAvg !== null
+        ? {
+            key: "wpm",
+            label: "Pace",
+            average: wpmAvg,
+            count: wpmValues.length,
+            unit: "wpm",
+            trend: computeTrend(wpmValues, { target: WPM_TARGET }, WPM_TREND_THRESHOLD),
+          }
+        : null,
     fillerPct:
       fillerAvg !== null
-        ? { key: "filler", label: "Filler words", average: fillerAvg, count: fillerValues.length, unit: "%" }
+        ? {
+            key: "filler",
+            label: "Filler words",
+            average: fillerAvg,
+            count: fillerValues.length,
+            unit: "%",
+            trend: computeTrend(fillerValues, "lower-better", PCT_TREND_THRESHOLD),
+          }
         : null,
     hedgePct:
       hedgeAvg !== null
-        ? { key: "hedge", label: "Hedge words", average: hedgeAvg, count: hedgeValues.length, unit: "%" }
+        ? {
+            key: "hedge",
+            label: "Hedge words",
+            average: hedgeAvg,
+            count: hedgeValues.length,
+            unit: "%",
+            trend: computeTrend(hedgeValues, "lower-better", PCT_TREND_THRESHOLD),
+          }
         : null,
     ttrPct:
       ttrAvg !== null
-        ? { key: "ttr", label: "Vocabulary diversity", average: ttrAvg, count: ttrValues.length, unit: "%" }
+        ? {
+            key: "ttr",
+            label: "Vocabulary diversity",
+            average: ttrAvg,
+            count: ttrValues.length,
+            unit: "%",
+            trend: computeTrend(ttrValues, "higher-better", PCT_TREND_THRESHOLD),
+          }
         : null,
   };
 }
@@ -191,10 +303,26 @@ export function computeConversationDynamicsStats(rows: FeedbackWithSession[]): C
 
   return {
     talkTimePct:
-      talkAvg !== null ? { key: "talkTime", label: "Talk time", average: talkAvg, count: talkValues.length, unit: "%" } : null,
+      talkAvg !== null
+        ? {
+            key: "talkTime",
+            label: "Talk time",
+            average: talkAvg,
+            count: talkValues.length,
+            unit: "%",
+            trend: computeTrend(talkValues, { target: TALK_TIME_TARGET }, PCT_TREND_THRESHOLD),
+          }
+        : null,
     questionRatePct:
       questionAvg !== null
-        ? { key: "questionRate", label: "Asked a question back", average: questionAvg, count: questionValues.length, unit: "%" }
+        ? {
+            key: "questionRate",
+            label: "Asked a question back",
+            average: questionAvg,
+            count: questionValues.length,
+            unit: "%",
+            trend: computeTrend(questionValues, "higher-better", PCT_TREND_THRESHOLD),
+          }
         : null,
   };
 }
@@ -202,8 +330,10 @@ export function computeConversationDynamicsStats(rows: FeedbackWithSession[]): C
 export interface PitchTimingStats {
   /** Average seconds over (positive) or under (negative) budget. */
   avgDiffSec: number | null;
+  avgDiffSecTrend: TrendDirection | null;
   /** Share of pitches landing within ~15% (min 5s) of their time budget. */
   onTargetRatePct: number | null;
+  onTargetRatePctTrend: TrendDirection | null;
   count: number;
 }
 
@@ -211,20 +341,28 @@ export interface PitchTimingStats {
 export function computePitchTimingStats(rows: FeedbackWithSession[]): PitchTimingStats {
   const validRows = rows.filter((r) => r.valid && r.mode === "pitch");
   const diffs: number[] = [];
-  let onTarget = 0;
+  const onTargetFlags: number[] = [];
 
   for (const row of validRows) {
     const timing = computePitchTiming({ turns: row.turns, pitchTimeLimitSec: row.pitchTimeLimitSec });
     if (!timing) continue;
     diffs.push(timing.diffSec);
     const tolerance = Math.max(5, timing.targetSec * 0.15);
-    if (Math.abs(timing.diffSec) <= tolerance) onTarget += 1;
+    onTargetFlags.push(Math.abs(timing.diffSec) <= tolerance ? 1 : 0);
   }
 
-  if (diffs.length === 0) return { avgDiffSec: null, onTargetRatePct: null, count: 0 };
+  if (diffs.length === 0) {
+    return { avgDiffSec: null, avgDiffSecTrend: null, onTargetRatePct: null, onTargetRatePctTrend: null, count: 0 };
+  }
   return {
     avgDiffSec: average(diffs),
-    onTargetRatePct: (onTarget / diffs.length) * 100,
+    avgDiffSecTrend: computeTrend(diffs, { target: 0 }, SEC_TREND_THRESHOLD),
+    onTargetRatePct: average(onTargetFlags)! * 100,
+    onTargetRatePctTrend: computeTrend(
+      onTargetFlags.map((f) => f * 100),
+      "higher-better",
+      PCT_TREND_THRESHOLD
+    ),
     count: diffs.length,
   };
 }
