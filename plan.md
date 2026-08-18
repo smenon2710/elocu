@@ -487,14 +487,15 @@ this project's own convention (see intro) so they're pickable next session inste
 - **[Idea, not started]** Adjustable Debate/Interview intensity ("easy / standard / tough") — a
   small persona-prompt change (`lib/persona.ts`) with outsized replay value, since every debate
   currently argues at the same pushback level regardless of the user's experience.
-- **[Known limitation, not started]** No path to a public deployment yet. Two real blockers
-  discussed but not yet acted on: (1) `lib/store.ts` writes sessions/feedback/logs to local JSON
-  files, which doesn't survive Vercel's ephemeral per-invocation filesystem — needs a real backing
-  store (e.g. Postgres) before deploying there; (2) `LOCAL_USER_ID` (§5, §18) is a single hardcoded
-  constant — no auth, so a public URL would let every visitor share one identity and see each
-  other's sessions, and would let anyone spend the app's own Groq/OpenRouter API budget with no
+- **[Known limitation, not started — now planned]** No path to a public deployment yet. Two real
+  blockers discussed but not yet acted on: (1) `lib/store.ts` writes sessions/feedback/logs to local
+  JSON files, which doesn't survive Vercel's ephemeral per-invocation filesystem — needs a real
+  backing store (e.g. Postgres) before deploying there; (2) `LOCAL_USER_ID` (§5, §18) is a single
+  hardcoded constant — no auth, so a public URL would let every visitor share one identity and see
+  each other's sessions, and would let anyone spend the app's own Groq/OpenRouter API budget with no
   gating. Storage should come first (it's what actually breaks in production); auth is what makes it
-  safe to share the URL at all.
+  safe to share the URL at all. **Full multi-tenancy + monetization plan now written up in
+  `saas-plan.md`** (§32) — this bullet's two blockers are that plan's Phase 0/Phase 1.
 
 ---
 
@@ -924,3 +925,36 @@ picking a new style re-speaks the real transcript in it rather than a canned sam
 Verified live against a real session: the voice dropdown correctly grouped a voice named "Flo" under
 "Female voices," and clicking the "Harsh" style button updated the selection and triggered a live
 preview with no console errors.
+
+---
+
+## 32. Multi-tenancy & monetization — planned, not built
+
+Requested as planning only ("let's just plan and document it for now") — no code changes this pass.
+Full plan written up in **`saas-plan.md`** rather than as a section here, deliberately: this file's own
+stated purpose is decision history for what's actually been built (see the intro), and a forward-looking
+roadmap for unbuilt work doesn't fit that chronological-narrative convention — a separate document
+keeps both readable as what they actually are.
+
+The plan is grounded in the real current architecture rather than generic SaaS boilerplate, notably:
+
+- **A real, currently-live authorization gap gets called out explicitly**, not folded into "add auth"
+  as a vague catch-all: `Session.userId` (`lib/types.ts`) is set on every session but never read back
+  anywhere — `getSession(id)` returns any session to anyone who has (or guesses) the id, no ownership
+  check exists at all. Closing this is framed as part of the auth work, not a separate follow-up that
+  could get missed.
+- **The Phase 1 bet on `lib/store.ts` as a single persistence boundary gets validated**: every
+  page/route already goes through its exported functions rather than touching `fs` directly (per §5's
+  original design intent), so the database migration is scoped as a rewrite of one file's internals
+  plus threading a `userId` parameter through, not a hunt-and-replace across the app.
+- **Pricing is tied to the app's actual cost driver** (LLM calls, already logged with token usage in
+  `lib/llm.ts`) rather than an arbitrary tier structure — recommends session-count limits (legible to
+  users) over token-based ones (legible only internally), and flags the Ollama fallback tier's
+  production behavior (unreachable at `localhost:11434` once deployed, so a Groq+OpenRouter double
+  failure currently has nowhere left to fall back to) as a real pre-launch decision, not a detail.
+- Phased as four independently-shippable stages (storage migration → auth → billing → production
+  hardening) rather than one large rewrite, with open decisions (auth provider, free-tier cap, price
+  point) flagged explicitly rather than silently defaulted.
+
+`plan.md` §22's "no path to a public deployment" backlog item now points here rather than duplicating
+the same two blockers in two places.

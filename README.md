@@ -11,7 +11,8 @@ flows from there — sessions, feedback, call logs).
 
 See `plan.md` for the full design rationale and decision history (why things are built the way
 they are, bugs found along the way, and what was tried and rejected). This README is the practical
-"how do I run and use this" doc.
+"how do I run and use this" doc. See `saas-plan.md` for the not-yet-built plan to turn this into a
+multi-tenant, paid product — auth, database migration, billing, the works.
 
 ## Modes
 
