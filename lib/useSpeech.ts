@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { getVoiceStyle, type VoiceStyleKey } from "./voiceCategories";
 
 // The Web Speech API has no official TS lib.dom types yet — minimal ambient
 // shapes for just what this hook uses.
@@ -38,9 +39,11 @@ const noopSubscribe = () => () => {};
 const getSupportedSnapshot = () => getSpeechRecognitionCtor() !== null && "speechSynthesis" in window;
 const getSupportedServerSnapshot = () => false;
 
-// Which TTS voice to speak AI replies in — a device/browser preference, not
-// app data, so it lives in localStorage rather than the session store.
+// Which TTS voice (and delivery style) to speak AI replies in — a
+// device/browser preference, not app data, so it lives in localStorage
+// rather than the session store.
 const VOICE_STORAGE_KEY = "elocu-voice-uri";
+const VOICE_STYLE_STORAGE_KEY = "elocu-voice-style";
 
 /**
  * Wraps browser-native STT (SpeechRecognition) and TTS (speechSynthesis).
@@ -66,6 +69,10 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
   const [voiceURI, setVoiceURIState] = useState<string | null>(() =>
     typeof window === "undefined" ? null : localStorage.getItem(VOICE_STORAGE_KEY)
   );
+  const [voiceStyle, setVoiceStyleState] = useState<VoiceStyleKey>(() => {
+    if (typeof window === "undefined") return "neutral";
+    return (localStorage.getItem(VOICE_STYLE_STORAGE_KEY) as VoiceStyleKey | null) ?? "neutral";
+  });
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const finalBufferRef = useRef("");
@@ -99,6 +106,12 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
     if (typeof window === "undefined") return;
     if (uri) localStorage.setItem(VOICE_STORAGE_KEY, uri);
     else localStorage.removeItem(VOICE_STORAGE_KEY);
+  }, []);
+
+  const setVoiceStyle = useCallback((style: VoiceStyleKey) => {
+    setVoiceStyleState(style);
+    if (typeof window === "undefined") return;
+    localStorage.setItem(VOICE_STYLE_STORAGE_KEY, style);
   }, []);
 
   // Builds one recognizer instance wired for the accumulate-until-stopped
@@ -228,13 +241,16 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
           const match = window.speechSynthesis.getVoices().find((v) => v.voiceURI === voiceURI);
           if (match) utterance.voice = match;
         }
+        const style = getVoiceStyle(voiceStyle);
+        utterance.pitch = style.pitch;
+        utterance.rate = style.rate;
         utterance.onend = () => resolve();
         utterance.onerror = () => resolve();
         setState("speaking");
         window.speechSynthesis.speak(utterance);
       });
     },
-    [voiceURI]
+    [voiceURI, voiceStyle]
   );
 
   useEffect(() => {
@@ -251,5 +267,18 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
     };
   }, []);
 
-  return { state, setState, supported, interimText, startListening, stopListening, speak, voices, voiceURI, setVoiceURI };
+  return {
+    state,
+    setState,
+    supported,
+    interimText,
+    startListening,
+    stopListening,
+    speak,
+    voices,
+    voiceURI,
+    setVoiceURI,
+    voiceStyle,
+    setVoiceStyle,
+  };
 }

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { VoicePicker } from "@/app/components/VoicePicker";
 import { useSpeech } from "@/lib/useSpeech";
 import type { SessionMode } from "@/lib/types";
+import type { VoiceStyleKey } from "@/lib/voiceCategories";
 
 type Turn = { speaker: "user" | "ai"; text: string };
 
@@ -188,21 +189,30 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     }
   }
 
-  // Grades the conversation so far without ending it — the session stays
-  // resumable (e.g. if a slow/unreliable free model made you want to bail
-  // mid-conversation, you still get feedback on what you did, and can come
-  // back and pick up where you left off later via the sidebar or home page).
-  // Previews the newly-picked voice against the actual most recent AI line
+  // Previews a voice/style change against the actual most recent AI line
   // (not a generic sample phrase) whenever it's safe to interrupt — hearing
-  // the persona's real words is what tells you whether the voice actually
+  // the persona's real words is what tells you whether the choice actually
   // fits, a generic "hello, this is my voice" doesn't.
-  function handleVoiceChange(uri: string) {
-    speech.setVoiceURI(uri);
+  function previewIfSafe() {
     if (sending || ended || pausing || speech.state === "listening" || speech.state === "thinking") return;
     const lastAiTurn = [...turns].reverse().find((t) => t.speaker === "ai");
     if (lastAiTurn) speech.speak(lastAiTurn.text);
   }
 
+  function handleVoiceChange(uri: string) {
+    speech.setVoiceURI(uri);
+    previewIfSafe();
+  }
+
+  function handleStyleChange(style: VoiceStyleKey) {
+    speech.setVoiceStyle(style);
+    previewIfSafe();
+  }
+
+  // Grades the conversation so far without ending it — the session stays
+  // resumable (e.g. if a slow/unreliable free model made you want to bail
+  // mid-conversation, you still get feedback on what you did, and can come
+  // back and pick up where you left off later via the sidebar or home page).
   async function pauseSession() {
     if (pausingRef.current || endingRef.current) return;
     pausingRef.current = true;
@@ -251,7 +261,13 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       <div className="mt-4 flex flex-col gap-3">
         {speech.supported && speech.voices.length > 0 && (
           <div className="flex justify-center">
-            <VoicePicker voices={speech.voices} voiceURI={speech.voiceURI} onChange={handleVoiceChange} />
+            <VoicePicker
+              voices={speech.voices}
+              voiceURI={speech.voiceURI}
+              onVoiceChange={handleVoiceChange}
+              voiceStyle={speech.voiceStyle}
+              onStyleChange={handleStyleChange}
+            />
           </div>
         )}
 

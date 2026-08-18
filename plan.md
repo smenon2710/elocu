@@ -889,3 +889,38 @@ Verified live: the Delivery section correctly showed Pace trending ▼ red (drif
 diversity trended ▲ green in that same view — confirming the three different `Goodness` modes
 (closer-to-target, lower-better, higher-better) are each actually being applied per-metric rather than
 one blanket "up is good" rule, exactly as designed.
+
+---
+
+## 31. Voice categorization — gender grouping + delivery-style presets, honestly
+
+Requested directly: female/male voices, and "soft, persuasive, harsh, bossy" categories. Worth being
+explicit about what's actually possible here before describing what got built: `SpeechSynthesisVoice`
+(the Web Speech API's voice object) exposes exactly `.name`, `.lang`, `.localService`, `.default` —
+no gender field, no personality/tone field, nothing to query for "does this voice sound bossy." That's
+not a gap in this app's implementation, it's the full extent of what the browser API provides. Two
+honest answers, not one fabricated one:
+
+- **Gender grouping** — `lib/voiceCategories.ts`'s `guessVoiceGender()` infers it from the voice's
+  name against a curated lookup table (covering the common macOS/iOS, Chrome/Google, and Windows/Edge
+  system voice names) plus a literal "female"/"male" substring check for voices that spell it out in
+  the name. Explicitly a best-effort *guess*, documented as such in the code — anything unrecognized
+  lands in a third "Other voices" group rather than a wrong guess. `VoicePicker.tsx` renders the voice
+  `<select>` as three `<optgroup>`s (Female / Male / Other) built from this.
+- **Delivery style** — not a classification of the fixed voices at all (there's no data to classify
+  them by), but adjustable presets layered on top of whichever voice is picked, using the one real
+  controllable lever `SpeechSynthesisUtterance` actually exposes for vocal character: `.pitch` (0-2)
+  and `.rate` (0.1-10). Five presets in `lib/voiceCategories.ts` — Neutral (the voice's own default),
+  Soft (higher pitch, slower), Persuasive (measured pace, slightly warmer), Harsh (lower, more
+  clipped, faster), Bossy (lower-ish, brisk) — rendered as pill buttons next to the voice dropdown.
+  These are simple engineering approximations, not a validated psychoacoustic model the way the WPM
+  guidance elsewhere in this app is genuinely comprehension research — said so directly in the code
+  comment rather than dressing up a guess as a finding.
+
+Both preferences persist in `localStorage` (`lib/useSpeech.ts`, alongside the voice-URI preference
+from §29) and reuse the same "preview the actual last AI line" pattern §29 already established —
+picking a new style re-speaks the real transcript in it rather than a canned sample.
+
+Verified live against a real session: the voice dropdown correctly grouped a voice named "Flo" under
+"Female voices," and clicking the "Harsh" style button updated the selection and triggered a live
+preview with no console errors.
