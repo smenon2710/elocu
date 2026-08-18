@@ -733,3 +733,41 @@ useful widening, not scope creep — the same component now covers a richer trig
 implementation) and added a tooltip grounded in the elevator-pitch convention itself: 30–60s for a
 cold pitch, 45–60s+ with more context, and an explicit note that running *under* budget isn't
 automatically better — it can mean the value prop or the ask got left out.
+
+---
+
+## 27. Fixing tooltip clipping near the header — a real bug, not a header problem
+
+Reported directly: hover text getting cropped by the top header. The actual cause was one step
+removed from where it looked like it was — `Metric`'s tooltip was `position: absolute` with
+`bottom-full` (float above the trigger), living inside the app shell's scrollable content pane
+(`app/(app)/layout.tsx`'s `overflow-y-auto` div). For a trigger near the top of that pane — the
+pitch-timing line sits right under the page heading — the tooltip's rendered box extended above the
+pane's own top edge, and `overflow-y-auto` clips in that direction too, not just at the bottom. It
+looked exactly like "the header is cutting it off" because the header sits right above that pane, but
+the header itself was never involved.
+
+Rewrote `Metric` to position via `position: fixed`, computed from the trigger's real
+`getBoundingClientRect()` on hover/focus rather than a static CSS anchor — `fixed` positioning is
+relative to the viewport, so it isn't subject to any scrolling ancestor's overflow clipping at all.
+Went through two more rounds fixing this properly rather than declaring victory early:
+
+1. First pass flipped the tooltip below the trigger when a *guessed* fixed height (130px) wouldn't
+   fit above. Verified live and the guess was wrong for this component's longer tooltip strings
+   (the pitch-timing one runs ~270 characters) — the box grew upward past the guessed height anyway,
+   right off the top of the viewport. Fixed by comparing the *actual* available space above vs.
+   below (real geometry, not an estimate) and picking whichever is bigger, with `max-height` +
+   `overflow-y-auto` as a second safety net so even a wrong call degrades to "scrollable" rather than
+   "off-screen."
+2. Attempted a small caret/pointer diamond as a polish touch (the design-review pass this was done
+   under). Confirmed via direct DOM inspection that it was rendering with correct geometry, rotation,
+   and border — the CSS math was right, it was just visually imperceptible (the tooltip's background
+   is only ~5-10 RGB units lighter than the page background it pokes out against, and a 1px
+   10%-opacity border doesn't rescue that at this size). Cut it rather than keep tuning a decorative
+   detail nobody asked for — the actual reported bug doesn't need it, and a simpler component is a
+   better outcome than a subtly-broken decorative one.
+
+Reverified against three concrete scenarios after each round: the near-header trigger (full tooltip
+text now visible, flips below when that has more room), an artificially short viewport (degrades to
+scrollable instead of spilling off-screen), and both previously-fixed mobile horizontal edge cases
+(still clean). All three confirmed clean in the final version.
