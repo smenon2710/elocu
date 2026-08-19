@@ -21,6 +21,39 @@
  *    which is genuinely research-backed.
  */
 
+// A real, reported bug traced to this: the Web Speech API exposes every
+// voice the OS happens to have installed, which on macOS includes a long
+// tail of "novelty"/effect voices bundled under System Settings > Spoken
+// Content > Customize (Zarvox, Bubbles, Deranged, Bells, Pipe Organ,
+// Trinoids, Whisper, and similar) that are pitch/effect gags, not natural
+// speaking voices — one of these is the most likely explanation for a
+// session starting in a "blabbering" voice, since with every OS voice
+// listed and no curation, nothing stopped one from being selected (by a
+// stray click, or a stale localStorage value from before this list
+// existed) and then persisting across every future session and mode.
+// Separately, and independently requested directly: fewer choices, not a
+// wall of ~180 system voices. Curating down to a small, cross-platform set
+// of known-good, natural-sounding voices solves both — the picker only
+// ever offers these, and (see lib/useSpeech.ts's speak()) a voice outside
+// this set can never actually be used to speak, even if an old bad
+// voiceURI is still sitting in localStorage.
+const CURATED_VOICE_NAMES = [
+  "samantha", // macOS, female, flagship US voice
+  "alex", // macOS, male, flagship US voice
+  "karen", // macOS, female, Australian accent
+  "daniel", // macOS, male, British accent
+  "microsoft zira", // Windows, female
+  "microsoft david", // Windows, male
+  "google uk english female",
+  "google uk english male",
+];
+
+/** Whether a voice is in the small curated set — see the note above. */
+export function isCuratedVoice(voice: SpeechSynthesisVoice): boolean {
+  const lower = voice.name.toLowerCase();
+  return CURATED_VOICE_NAMES.some((name) => lower.includes(name));
+}
+
 export type VoiceGender = "female" | "male" | "unspecified";
 
 const FEMALE_NAMES = new Set([

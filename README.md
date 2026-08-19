@@ -118,11 +118,15 @@ npm run lint
   `data/sessions/*.json` (gitignored). Swapping to a real DB later is contained to this one file.
 - **`lib/useSpeech.ts`** — browser Web Speech API wrapper. Push-to-talk-until-you're-done: the mic
   stays open across pauses (not silence-triggered), tapping it again is how you signal "I'm done."
-  Also exposes the browser's available TTS voices and a delivery-style preset (Neutral/Soft/
-  Persuasive/Harsh/Bossy, via pitch/rate) — `app/components/VoicePicker.tsx` on the session page lets
-  you pick both, persisted in `localStorage`. Voices are grouped by a best-effort gender guess from
-  the voice name (`lib/voiceCategories.ts`) — the Web Speech API itself exposes no gender/personality
-  field at all.
+  Also exposes TTS voices and a delivery-style preset (Neutral/Soft/Persuasive/Harsh/Bossy, via
+  pitch/rate) — `app/components/VoicePicker.tsx` on the session page lets you pick both, persisted in
+  `localStorage`. Voices are grouped by a best-effort gender guess from the voice name
+  (`lib/voiceCategories.ts`) — the Web Speech API exposes no gender/personality field at all — and
+  restricted to a small cross-platform curated allowlist (`isCuratedVoice()`) rather than every voice
+  the OS happens to expose (macOS alone can list ~180, including novelty/effect voices like Zarvox or
+  Bubbles that sound garbled, not natural). Enforced in two places: the picker only ever lists curated
+  voices, and `speak()` will only match a `voiceURI` against the curated subset, so a stale
+  `localStorage` value pointing at an uncurated voice can never actually be spoken.
 - **Turn duration is real, not a same-instant double timestamp.** The session page
   (`app/(app)/session/[id]/page.tsx`) tracks the moment the floor becomes the user's — a mic tap, or
   the AI's previous line finishing — and sends the real elapsed time to

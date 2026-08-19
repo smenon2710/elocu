@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { getVoiceStyle, type VoiceStyleKey } from "./voiceCategories";
+import { getVoiceStyle, isCuratedVoice, type VoiceStyleKey } from "./voiceCategories";
 
 // The Web Speech API has no official TS lib.dom types yet — minimal ambient
 // shapes for just what this hook uses.
@@ -238,7 +238,14 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         if (voiceURI) {
-          const match = window.speechSynthesis.getVoices().find((v) => v.voiceURI === voiceURI);
+          // Only ever matches within the curated set (lib/voiceCategories.ts)
+          // — a stale voiceURI pointing at a novelty/effect voice (or one no
+          // longer installed) simply won't match here, so it can never
+          // actually be spoken, even if it's still sitting in localStorage
+          // from before curation existed. Falls through to the browser's
+          // own default voice in that case, not an explicit request for
+          // whatever the bad voice was.
+          const match = window.speechSynthesis.getVoices().filter(isCuratedVoice).find((v) => v.voiceURI === voiceURI);
           if (match) utterance.voice = match;
         }
         const style = getVoiceStyle(voiceStyle);

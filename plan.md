@@ -1301,3 +1301,50 @@ became "In your last Conversation session you used \"just\" (2x) and \"i guess\"
 across 23 words (21.7%). Replace those with direct statements" — then deleted the test session and
 confirmed the goal's "based on N sessions" count and advice both reverted cleanly (13 -> 12, back to the
 honest zero-hedge state). `tsc --noEmit` and `eslint` both clean.
+
+---
+
+## 39. Curating the voice list — fewer choices, and a likely fix for a "blabbering" voice
+
+Reported directly: a Debate session started in a "blabbering" voice. Two things at once, one a bug
+report and one a repeated, explicit preference: "I do not need so many different types of voices — a
+few and different tonalities." §29 had deliberately loaded and offered *every* voice
+`speechSynthesis.getVoices()` returns (confirmed at the time: 180 real system voices) — reasonable
+when the ask was just "let me pick a voice," but not once the ask became "not this many."
+
+**The likely root cause of "blabbering," found by inspection**: macOS ships a long tail of novelty/
+effect voices under Spoken Content > Customize — Zarvox, Bubbles, Deranged, Bells, Pipe Organ,
+Trinoids, Whisper, and similar — that are pitch-shifted/robotic gags, not natural speaking voices.
+With every OS voice listed and zero curation, nothing ever stopped one of these from being selected
+(a stray click while exploring the ~180-option dropdown, most plausibly) and then persisting in
+`localStorage` across every future session and mode, including Debate — a device-level preference by
+original design (§29), not reset per session. Genuinely can't confirm this was *the* cause without
+being able to hear the actual reported audio, but it's the one concrete, structurally-plausible
+explanation the code supports, and fixing it is strictly correct regardless.
+
+**Fix**: `lib/voiceCategories.ts` gained a small cross-platform curated allowlist (`samantha`, `alex`,
+`karen`, `daniel` on macOS; `microsoft zira`, `microsoft david` on Windows; `google uk english female`/
+`male` on Chrome — 8 names, realistically 2-4 present on any one real system) and `isCuratedVoice()`.
+Two places enforce it, not just one, since filtering only the picker's *display* wouldn't have stopped
+a stale bad `voiceURI` already in `localStorage` from still being matched and spoken:
+
+- `app/components/VoicePicker.tsx` only ever lists curated voices (falling back to the full raw list
+  only if literally none of the curated names are installed, so the picker never goes empty).
+- `lib/useSpeech.ts`'s `speak()` now matches `voiceURI` only within the curated subset of
+  `getVoices()`, not the full raw list — a voiceURI outside the curated set (an old novelty-voice
+  selection, or a voice that's no longer installed) simply can't match anymore, so it can never
+  actually be spoken; the browser's own default voice is used instead, which is never a novelty voice
+  on a real system.
+
+Style presets (Neutral/Soft/Persuasive/Harsh/Bossy, §31) are untouched — already a small, distinctly-
+named set, which is what "a few... different tonalities" was read as endorsing rather than asking to
+shrink further.
+
+**Verification note, stated plainly**: this fix lives entirely in client-side Web Speech API code with
+no server-rendered difference to check — `tsc --noEmit` and `eslint` both pass, and the curated-list/
+matching logic was confirmed present in all three touched files, but actually *hearing* whether Debate
+now sounds normal isn't something this environment can do (no browser audio available here). Flagged
+to the user to verify directly in their own browser rather than claiming a fix confirmed by ear.
+
+**Saved as a standing preference** (memory, not just this file): don't reintroduce the full unfiltered
+voice list — a small curated set is the explicit, repeated ask.
