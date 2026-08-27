@@ -1348,3 +1348,65 @@ to the user to verify directly in their own browser rather than claiming a fix c
 
 **Saved as a standing preference** (memory, not just this file): don't reintroduce the full unfiltered
 voice list — a small curated set is the explicit, repeated ask.
+
+---
+
+## 40. Full-app review, and the first batch of fixes from it
+
+Asked for a thorough review of the whole app — functionality, accessibility, visual design,
+performance, correctness, security — with everything written down. The findings live in `review.md`
+at the repo root (same spirit as this file: a prioritized backlog, not decisions already made). It
+also settles a recurring source of confusion: "mobile" in that document means *the app in a
+phone-sized browser viewport*, which the existing `sm:` breakpoints already target — not a native
+app, and not a claim that the app is somehow locked to one machine. Deploying it or reaching it over
+the LAN is a hosting step, gated only by the file-based `data/` persistence (see `saas-plan.md`),
+not by anything in the app code.
+
+Mobile-specific gaps (the hidden-below-`sm:` history sidebar leaving phones with no way back to past
+sessions; the four-control session action bar overflowing a narrow viewport) were explicitly
+deferred. This first batch is the non-mobile top of the list — four small, independent, low-risk
+changes:
+
+**Retry-grading for an already-ended session** (`app/api/sessions/[id]/regrade/route.ts`,
+`app/components/RetryGradingButton.tsx`). Before this, a session that ended with `gradingFailed:true`
+(a parse/validation failure per §16, or a provider outage that outlasted the fallback chain) was
+stuck on placeholder 3/3/3 scores forever: `/end` is idempotent and returns the cached placeholder
+without regrading, and `/pause` refuses to touch a session with `endedAt` set. The new `/regrade`
+route deliberately overwrites — but *only* when the cached feedback is a real `gradingFailed`
+placeholder and the transcript actually has user turns, so a good result can never be spent on
+another LLM call by accident (§37's "no unnecessary calls" discipline). A `gradingFailed` banner on
+the feedback page now carries a "Retry grading" button that hits it and `router.refresh()`es on
+success.
+
+**The live transcript is announced to screen readers** (`app/(app)/session/[id]/page.tsx`). The
+turns container had no live region, so assistive tech said nothing when the AI replied — the core
+loop was silent to a blind user. It's now `role="log"` + `aria-live="polite"`, and the
+`Listening… / Thinking… / Speaking…` status line got `aria-live="polite"` too so state changes are
+spoken. The rapidly-updating interim-transcript line was left un-live on purpose — announcing every
+partial recognition result would be unusable noise.
+
+**The goal-editor selects are labelled** (`app/components/ObjectiveForm.tsx`,
+`app/components/ObjectiveCard.tsx`). The metric / section / mode `<select>`s in both the
+goal-creation form and the inline `TargetEditor` had no `<label>` or `aria-label` — a screen reader
+announced a bare "combobox". Each now has an `aria-label` ("Metric to track" / "Section" /
+"Mode scope"). The voice picker's select was already wrapped in a visible `<label>`, so it was left
+alone.
+
+**Discarding a session asks first** (`app/components/HistorySidebar.tsx`). The "×" deleted the
+session file *and* its feedback file with no confirmation and no undo (`lib/store.ts`'s
+`deleteSession`) — one mis-click was permanent. It now arms an inline `delete` / `keep` prompt
+(one row at a time, via a `confirmingId` state), matching the app's own restrained style rather than
+a browser `confirm()` dialog.
+
+**Also**: the stale `"Failed to reach OpenRouter"` fallback error string in
+`api/sessions/route.ts`, `messages/route.ts`, and `retry/route.ts` — a leftover from before §13
+made Groq the primary provider — is now `"Failed to reach the AI provider"`.
+
+**Verification**: `tsc --noEmit` and `eslint` both clean. The `/regrade` route was tested end to end
+against the running dev server — forced `gradingFailed:true` onto a throwaway session's feedback
+file, POSTed `/regrade`, confirmed the response came back `gradingFailed:false` with real section
+scores and a fresh `generatedAt`, then confirmed the no-op path (a session whose grading *succeeded*
+returns its existing feedback untouched, same old timestamp). Test session deleted afterward. The
+accessibility changes are attribute-only with no server-rendered or behavioural difference this
+environment can meaningfully exercise beyond the type/lint pass; flagged for the user to confirm
+with an actual screen reader.

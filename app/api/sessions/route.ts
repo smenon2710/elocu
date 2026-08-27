@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
     const now = Date.now();
     session.turns.push({ speaker: "ai", text: opening, audioRef: null, startTs: now, endTs: now });
   } catch (err) {
-    openingError = err instanceof Error ? err.message : "Failed to reach OpenRouter";
+    openingError = err instanceof Error ? err.message : "Failed to reach the AI provider";
   }
 
   await saveSession(session);

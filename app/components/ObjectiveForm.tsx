@@ -131,6 +131,7 @@ export function ObjectiveForm() {
       {hasTarget && (
         <div className="flex flex-wrap items-center gap-2">
           <select
+            aria-label="Metric to track"
             value={metricKey}
             onChange={(e) => {
               const next = e.target.value as ObjectiveMetric;
@@ -148,6 +149,7 @@ export function ObjectiveForm() {
 
           {metric.needsSection && (
             <select
+              aria-label="Section"
               value={sectionKey}
               onChange={(e) => setSectionKey(e.target.value)}
               className="rounded-full border border-hairline bg-ink-900 px-3 py-1.5 text-xs text-parchment-300 outline-none focus:border-ember-500"
@@ -162,6 +164,7 @@ export function ObjectiveForm() {
 
           {showModePicker && (
             <select
+              aria-label="Mode scope"
               value={mode}
               onChange={(e) => setMode(e.target.value as SessionMode | "")}
               className="rounded-full border border-hairline bg-ink-900 px-3 py-1.5 text-xs text-parchment-300 outline-none focus:border-ember-500"

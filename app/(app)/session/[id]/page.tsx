@@ -239,7 +239,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   return (
     <main className="mx-auto flex h-full max-w-2xl flex-col p-6">
       <div className="flex-1 overflow-y-auto rounded-2xl border border-hairline bg-ink-800 p-6">
-        <div className="space-y-5">
+        <div className="space-y-5" role="log" aria-live="polite" aria-label="Conversation transcript">
           {turns.map((t, i) => (
             <div key={i} className="transcript-line">
               <span
@@ -305,7 +305,9 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
               >
                 🎙️
               </button>
-              <span className="font-mono text-xs text-parchment-500">{STATE_LABEL[speech.state]}</span>
+              <span className="font-mono text-xs text-parchment-500" aria-live="polite">
+                {STATE_LABEL[speech.state]}
+              </span>
             </div>
             {speech.state === "listening" && speech.interimText && (
               <p className="max-w-md text-center text-sm text-parchment-500 italic">{speech.interimText}</p>
