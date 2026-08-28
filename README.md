@@ -118,6 +118,10 @@ npm run lint
   `data/sessions/*.json` (gitignored). Swapping to a real DB later is contained to this one file.
 - **`lib/useSpeech.ts`** — browser Web Speech API wrapper. Push-to-talk-until-you're-done: the mic
   stays open across pauses (not silence-triggered), tapping it again is how you signal "I'm done."
+  A finished spoken turn then lands in an editable **review box** before it's sent
+  (`app/(app)/session/[id]/page.tsx`), so a mis-heard word or dropped phrase can be corrected before
+  it's quoted back and counted toward the delivery/content metrics — the real speaking duration is
+  captured at the moment the mic stops, so time spent reviewing never skews pace or pitch timing.
   Also exposes TTS voices and a delivery-style preset (Neutral/Soft/Persuasive/Harsh/Bossy, via
   pitch/rate) — `app/components/VoicePicker.tsx` on the session page lets you pick both, persisted in
   `localStorage`. Voices are grouped by a best-effort gender guess from the voice name

@@ -1410,3 +1410,51 @@ returns its existing feedback untouched, same old timestamp). Test session delet
 accessibility changes are attribute-only with no server-rendered or behavioural difference this
 environment can meaningfully exercise beyond the type/lint pass; flagged for the user to confirm
 with an actual screen reader.
+
+---
+
+## 41. Review before send — stop grading the speech recognizer
+
+`review.md`'s single highest-value pending item. The app's whole promise is feedback grounded in
+*what you actually said* — quoted moments, filler/hedge counts, WPM, vocabulary diversity, and every
+Insights trend built on those. Voice is the primary input mode. But the finalized STT transcript went
+straight into the transcript and the grading pass with no review step: `useSpeech.ts`'s `onend`
+manual-stop path called `onFinalTranscript(transcript)`, which was wired directly to `handleUserTurn`
+in `app/(app)/session/[id]/page.tsx`, which POSTed it immediately. Speech recognition mis-hears
+homophones, drops words, and mis-segments phrases — and an unreviewed transcript then gets quoted
+back at the user as their own words and counted. Silent, too: nothing told the user their transcript
+was off, so they either lost trust or acted on misattributed feedback.
+
+**The change**: a spoken turn now lands in an editable review box before it's sent, not on the wire.
+
+- `useSpeech` is unchanged — still finalizes on mic-tap and fires `onFinalTranscript`. The session
+  page just points that callback at a new `handleFinalTranscript` (stash for review) instead of
+  `handleUserTurn` (send).
+- New `pending` state: `{ text, elapsedMs } | null`. When non-null, the mic + type-instead form are
+  replaced by a review panel — a prefilled, autofocused `<textarea>`, plus **Send** / **Re-record**
+  (discard and start listening again) / **Discard** (drop it, back to idle). Enter sends, Shift+Enter
+  is a line break.
+- **The pacing-metric trap, and why `elapsedMs` is captured at mic-stop, not at send**: turn
+  duration was previously computed inside `handleUserTurn` as `Date.now() - turnStartRef.current` at
+  the moment of submit. Inserting a review step there would have folded editing/reading time into the
+  "speaking" duration — inflating WPM and wrecking pitch timing, the *exact* metrics this feature
+  exists to protect. So `handleFinalTranscript` snapshots the elapsed time the instant the mic
+  stops, stows it on `pending.elapsedMs`, and `handleUserTurn` grew an optional
+  `elapsedMsOverride` param that the reviewed-send path passes through verbatim. The typed-input path
+  passes no override and is timed from `turnStartRef` exactly as before.
+- The live pitch clock naturally stops during review (`showPitchClock` depends on
+  `turnStartRef.current !== null`, which is cleared when a turn is stashed) — correct, since delivery
+  is done at that point and edit time isn't delivery time.
+- Framing is deliberate: "Review — fix anything the mic got wrong," not "edit your answer." The point
+  is correcting transcription errors, not rewriting a delivered turn — a heavy rewrite would still
+  skew WPM (edited word count over real spoken duration), just less badly than grading mis-heard
+  words.
+
+**Verification**: `tsc --noEmit` and `eslint` clean. The typed-input path (which shares
+`handleUserTurn`) was re-tested end to end against the dev server — session create, typed turn with
+`elapsedMs`, confirmed `endTs - startTs` matches and the AI reply still comes back — so the
+`elapsedMsOverride` refactor didn't regress it. The voice review flow itself needs a real browser
+with a microphone (no audio/STT in this environment); flagged for the user to exercise directly:
+speak a turn, tap the mic, confirm the transcript appears editable, edit it, Send, and check the
+sent turn matches the edit while the Delivery/pace numbers on the feedback page still reflect the
+real speaking time.

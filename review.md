@@ -32,16 +32,17 @@ opening its URL in the phone's browser.
 
 1. Mobile: restore history access + fix the session action-bar layout.
 2. `aria-live` on the live transcript + label the unlabeled `<select>`s. — **done 2026-08-27**
-3. STT review-before-send step (largest single lever on feedback quality).
+3. STT review-before-send step (largest single lever on feedback quality). — **done 2026-08-28**
 4. Stream the conversation reply + honest fallback-provider messaging.
 5. Retry-grading button on ended sessions; confirm-on-discard. — **done 2026-08-27**
 6. Contrast / micro-text pass; tooltip association + touch support.
 7. Unit tests around the metric / parsing / trend functions.
 8. `listAllFeedback` caching before session count makes it matter.
 
-> **Batch 1 (2026-08-27)** — items 2 and 5 above, plus the stale error strings,
-> are implemented. See `plan.md` §40. Individual findings below are annotated
-> _(done)_ where addressed.
+> **Batch 1 (2026-08-27)** — items 2 and 5 above, plus the stale error strings.
+> See `plan.md` §40.
+> **Batch 2 (2026-08-28)** — item 3, STT review-before-send. See `plan.md` §41.
+> Individual findings below are annotated _(done)_ where addressed.
 
 ---
 
@@ -64,11 +65,12 @@ opening its URL in the phone's browser.
   input.
 
 - **STT output goes straight into the transcript and into grading with no
-  review step.** `useSpeech.ts:148` finalizes the buffer on mic-tap and
-  `page.tsx:61` submits it immediately. Recognition errors (homophones, dropped
-  words) are then quoted back at the user as their own words and scored — the app
-  grades the recognizer as much as the speaker. Add an editable "review before
-  send" state on the interim text.
+  review step.** _(done — a finished spoken turn now lands in an editable
+  review box with Send / Re-record / Discard; the real speaking duration is
+  snapshotted at mic-stop so review/edit time doesn't skew WPM or pitch
+  timing.)_ `useSpeech.ts` finalized the buffer on mic-tap and `page.tsx`
+  submitted it immediately — recognition errors (homophones, dropped words)
+  were quoted back as the user's own words and scored.
 
 - **No streaming anywhere.** Every turn blocks on the full LLM round-trip (up to
   the 45s ceiling in `llm.ts:139` on a slow fallback) behind a static "Thinking…"
