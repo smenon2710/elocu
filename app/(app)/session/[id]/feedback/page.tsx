@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { Metric } from "@/app/components/Metric";
+import { RetryGradingButton } from "@/app/components/RetryGradingButton";
 import { computeContentMetrics } from "@/lib/contentMetrics";
 import { computeConversationMetrics } from "@/lib/conversationMetrics";
 import { computeDeliveryMetrics } from "@/lib/deliveryMetrics";
@@ -261,9 +262,10 @@ export default async function FeedbackPage({ params }: { params: Promise<{ id: s
         </p>
       )}
       {feedback.gradingFailed && !feedback.emptyTranscript && (
-        <p className="mt-4 rounded-lg border border-gold-500/30 bg-gold-500/10 p-3 text-sm text-gold-500">
+        <div className="mt-4 rounded-lg border border-gold-500/30 bg-gold-500/10 p-3 text-sm text-gold-500">
           Grading didn&apos;t fully succeed for this session — scores below are placeholders.
-        </p>
+          <RetryGradingButton sessionId={id} />
+        </div>
       )}
 
       <div className="mt-6 space-y-6">

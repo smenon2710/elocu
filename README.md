@@ -118,6 +118,10 @@ npm run lint
   `data/sessions/*.json` (gitignored). Swapping to a real DB later is contained to this one file.
 - **`lib/useSpeech.ts`** — browser Web Speech API wrapper. Push-to-talk-until-you're-done: the mic
   stays open across pauses (not silence-triggered), tapping it again is how you signal "I'm done."
+  A finished spoken turn then lands in an editable **review box** before it's sent
+  (`app/(app)/session/[id]/page.tsx`), so a mis-heard word or dropped phrase can be corrected before
+  it's quoted back and counted toward the delivery/content metrics — the real speaking duration is
+  captured at the moment the mic stops, so time spent reviewing never skews pace or pitch timing.
   Also exposes TTS voices and a delivery-style preset (Neutral/Soft/Persuasive/Harsh/Bossy, via
   pitch/rate) — `app/components/VoicePicker.tsx` on the session page lets you pick both, persisted in
   `localStorage`. Voices are grouped by a best-effort gender guess from the voice name
@@ -138,9 +142,15 @@ npm run lint
   Both routes are idempotent about the grading LLM call itself: `/end` never regrades once feedback
   exists, and `/pause` skips the call (returns the cached feedback) whenever nothing's changed since
   the last pause (`Feedback.gradedTurnCount`, `lib/types.ts`) — it still regrades for real once a new
-  turn is added, or if the previous attempt actually failed.
+  turn is added, or if the previous attempt actually failed. `/api/sessions/[id]/regrade` is the
+  escape hatch for a session that already ended with `gradingFailed` (a parse failure or a provider
+  outage): it re-runs grading in place, but only when the cached feedback is a genuine failure
+  placeholder, so a good result can't be spent on another call. The feedback page surfaces it as a
+  "Retry grading" button on the failure banner.
 - **History sidebar** (`app/components/HistorySidebar.tsx`) lists every session, in-progress and
-  completed, linking to the right place (resume vs. view feedback) for each.
+  completed, linking to the right place (resume vs. view feedback) for each. Discarding a session
+  (which deletes its transcript and feedback, no undo) arms an inline confirm first rather than
+  deleting on the first click.
 - **Insights dashboard** (`/app/insights`) — overall average, per-section breakdown, and a
   score-over-time trend, aggregated across every graded session (`lib/progress.ts`). Only counts
   sessions where grading actually succeeded toward the averages. Filterable per mode (`?mode=X`,

@@ -33,7 +33,7 @@ export async function POST(
     session.turns.push({ speaker: "ai", text: reply, audioRef: null, startTs: now, endTs: now });
     await saveSession(session);
   } catch (err) {
-    replyError = err instanceof Error ? err.message : "Failed to reach OpenRouter";
+    replyError = err instanceof Error ? err.message : "Failed to reach the AI provider";
   }
 
   return NextResponse.json({ session, error: replyError, shouldAutoEnd: shouldAutoEnd(session) });

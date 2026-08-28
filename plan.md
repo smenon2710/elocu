@@ -1348,3 +1348,113 @@ to the user to verify directly in their own browser rather than claiming a fix c
 
 **Saved as a standing preference** (memory, not just this file): don't reintroduce the full unfiltered
 voice list — a small curated set is the explicit, repeated ask.
+
+---
+
+## 40. Full-app review, and the first batch of fixes from it
+
+Asked for a thorough review of the whole app — functionality, accessibility, visual design,
+performance, correctness, security — with everything written down. The findings live in `review.md`
+at the repo root (same spirit as this file: a prioritized backlog, not decisions already made). It
+also settles a recurring source of confusion: "mobile" in that document means *the app in a
+phone-sized browser viewport*, which the existing `sm:` breakpoints already target — not a native
+app, and not a claim that the app is somehow locked to one machine. Deploying it or reaching it over
+the LAN is a hosting step, gated only by the file-based `data/` persistence (see `saas-plan.md`),
+not by anything in the app code.
+
+Mobile-specific gaps (the hidden-below-`sm:` history sidebar leaving phones with no way back to past
+sessions; the four-control session action bar overflowing a narrow viewport) were explicitly
+deferred. This first batch is the non-mobile top of the list — four small, independent, low-risk
+changes:
+
+**Retry-grading for an already-ended session** (`app/api/sessions/[id]/regrade/route.ts`,
+`app/components/RetryGradingButton.tsx`). Before this, a session that ended with `gradingFailed:true`
+(a parse/validation failure per §16, or a provider outage that outlasted the fallback chain) was
+stuck on placeholder 3/3/3 scores forever: `/end` is idempotent and returns the cached placeholder
+without regrading, and `/pause` refuses to touch a session with `endedAt` set. The new `/regrade`
+route deliberately overwrites — but *only* when the cached feedback is a real `gradingFailed`
+placeholder and the transcript actually has user turns, so a good result can never be spent on
+another LLM call by accident (§37's "no unnecessary calls" discipline). A `gradingFailed` banner on
+the feedback page now carries a "Retry grading" button that hits it and `router.refresh()`es on
+success.
+
+**The live transcript is announced to screen readers** (`app/(app)/session/[id]/page.tsx`). The
+turns container had no live region, so assistive tech said nothing when the AI replied — the core
+loop was silent to a blind user. It's now `role="log"` + `aria-live="polite"`, and the
+`Listening… / Thinking… / Speaking…` status line got `aria-live="polite"` too so state changes are
+spoken. The rapidly-updating interim-transcript line was left un-live on purpose — announcing every
+partial recognition result would be unusable noise.
+
+**The goal-editor selects are labelled** (`app/components/ObjectiveForm.tsx`,
+`app/components/ObjectiveCard.tsx`). The metric / section / mode `<select>`s in both the
+goal-creation form and the inline `TargetEditor` had no `<label>` or `aria-label` — a screen reader
+announced a bare "combobox". Each now has an `aria-label` ("Metric to track" / "Section" /
+"Mode scope"). The voice picker's select was already wrapped in a visible `<label>`, so it was left
+alone.
+
+**Discarding a session asks first** (`app/components/HistorySidebar.tsx`). The "×" deleted the
+session file *and* its feedback file with no confirmation and no undo (`lib/store.ts`'s
+`deleteSession`) — one mis-click was permanent. It now arms an inline `delete` / `keep` prompt
+(one row at a time, via a `confirmingId` state), matching the app's own restrained style rather than
+a browser `confirm()` dialog.
+
+**Also**: the stale `"Failed to reach OpenRouter"` fallback error string in
+`api/sessions/route.ts`, `messages/route.ts`, and `retry/route.ts` — a leftover from before §13
+made Groq the primary provider — is now `"Failed to reach the AI provider"`.
+
+**Verification**: `tsc --noEmit` and `eslint` both clean. The `/regrade` route was tested end to end
+against the running dev server — forced `gradingFailed:true` onto a throwaway session's feedback
+file, POSTed `/regrade`, confirmed the response came back `gradingFailed:false` with real section
+scores and a fresh `generatedAt`, then confirmed the no-op path (a session whose grading *succeeded*
+returns its existing feedback untouched, same old timestamp). Test session deleted afterward. The
+accessibility changes are attribute-only with no server-rendered or behavioural difference this
+environment can meaningfully exercise beyond the type/lint pass; flagged for the user to confirm
+with an actual screen reader.
+
+---
+
+## 41. Review before send — stop grading the speech recognizer
+
+`review.md`'s single highest-value pending item. The app's whole promise is feedback grounded in
+*what you actually said* — quoted moments, filler/hedge counts, WPM, vocabulary diversity, and every
+Insights trend built on those. Voice is the primary input mode. But the finalized STT transcript went
+straight into the transcript and the grading pass with no review step: `useSpeech.ts`'s `onend`
+manual-stop path called `onFinalTranscript(transcript)`, which was wired directly to `handleUserTurn`
+in `app/(app)/session/[id]/page.tsx`, which POSTed it immediately. Speech recognition mis-hears
+homophones, drops words, and mis-segments phrases — and an unreviewed transcript then gets quoted
+back at the user as their own words and counted. Silent, too: nothing told the user their transcript
+was off, so they either lost trust or acted on misattributed feedback.
+
+**The change**: a spoken turn now lands in an editable review box before it's sent, not on the wire.
+
+- `useSpeech` is unchanged — still finalizes on mic-tap and fires `onFinalTranscript`. The session
+  page just points that callback at a new `handleFinalTranscript` (stash for review) instead of
+  `handleUserTurn` (send).
+- New `pending` state: `{ text, elapsedMs } | null`. When non-null, the mic + type-instead form are
+  replaced by a review panel — a prefilled, autofocused `<textarea>`, plus **Send** / **Re-record**
+  (discard and start listening again) / **Discard** (drop it, back to idle). Enter sends, Shift+Enter
+  is a line break.
+- **The pacing-metric trap, and why `elapsedMs` is captured at mic-stop, not at send**: turn
+  duration was previously computed inside `handleUserTurn` as `Date.now() - turnStartRef.current` at
+  the moment of submit. Inserting a review step there would have folded editing/reading time into the
+  "speaking" duration — inflating WPM and wrecking pitch timing, the *exact* metrics this feature
+  exists to protect. So `handleFinalTranscript` snapshots the elapsed time the instant the mic
+  stops, stows it on `pending.elapsedMs`, and `handleUserTurn` grew an optional
+  `elapsedMsOverride` param that the reviewed-send path passes through verbatim. The typed-input path
+  passes no override and is timed from `turnStartRef` exactly as before.
+- The live pitch clock naturally stops during review (`showPitchClock` depends on
+  `turnStartRef.current !== null`, which is cleared when a turn is stashed) — correct, since delivery
+  is done at that point and edit time isn't delivery time.
+- Framing is deliberate: "Review — fix anything the mic got wrong," not "edit your answer." The point
+  is correcting transcription errors, not rewriting a delivered turn — a heavy rewrite would still
+  skew WPM (edited word count over real spoken duration), just less badly than grading mis-heard
+  words.
+
+**Verification**: `tsc --noEmit` and `eslint` clean. The typed-input path (which shares
+`handleUserTurn`) was re-tested end to end against the dev server — session create, typed turn with
+`elapsedMs`, confirmed `endTs - startTs` matches and the AI reply still comes back — so the
+`elapsedMsOverride` refactor didn't regress it. The voice review flow itself needs a real browser
+with a microphone (no audio/STT in this environment); flagged for the user to exercise directly:
+speak a turn, tap the mic, confirm the transcript appears editable, edit it, Send, and check the
+sent turn matches the edit while the Delivery/pace numbers on the feedback page still reflect the
+real speaking time.

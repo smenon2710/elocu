@@ -36,6 +36,12 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   const [error, setError] = useState<string | null>(null);
   const [ended, setEnded] = useState(false);
   const [pausing, setPausing] = useState(false);
+  // A finished spoken turn waiting for the user to review/correct it before
+  // it's sent. `elapsedMs` is the real speaking duration, captured at
+  // mic-stop (not at send) so time spent editing never inflates the pacing
+  // metrics (WPM, pitch timing) this review step exists to protect. Null when
+  // there's nothing pending — the normal mic + type controls show instead.
+  const [pending, setPending] = useState<{ text: string; elapsedMs: number | null } | null>(null);
   // Ticks while it's the user's turn in pitch mode so the live clock
   // re-renders — the actual elapsed time is computed from turnStartRef below,
   // this state just forces a redraw every quarter second.
@@ -58,16 +64,25 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   // every other mode too.
   const turnStartRef = useRef<number | null>(null);
 
-  const handleUserTurn = async (text: string) => {
+  const handleUserTurn = async (text: string, elapsedMsOverride?: number | null) => {
     if (!text.trim() || processingRef.current || endingRef.current || pausingRef.current) return;
     processingRef.current = true;
+    setPending(null);
     setSending(true);
     setError(null);
     setTurns((prev) => [...prev, { speaker: "user", text }]);
     setTextInput("");
     speech.setState("thinking");
 
-    const elapsedMs = turnStartRef.current !== null ? Math.max(0, Date.now() - turnStartRef.current) : null;
+    // A reviewed spoken turn passes its real speaking duration (captured at
+    // mic-stop) as the override; a typed turn has no override and is timed
+    // from turnStartRef as before.
+    const elapsedMs =
+      elapsedMsOverride !== undefined
+        ? elapsedMsOverride
+        : turnStartRef.current !== null
+          ? Math.max(0, Date.now() - turnStartRef.current)
+          : null;
     turnStartRef.current = null;
 
     try {
@@ -105,7 +120,21 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     }
   };
 
-  const speech = useSpeech(handleUserTurn);
+  // A finished spoken turn lands here — stashed for review, not sent. Speech
+  // recognition mis-hears homophones, drops words, and mis-segments phrases,
+  // and an unreviewed transcript then gets quoted back as "your words" and
+  // counted toward the filler/pace/vocabulary metrics. Capturing elapsed time
+  // here (at mic-stop) keeps review/edit time out of the pacing numbers.
+  const handleFinalTranscript = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || processingRef.current || endingRef.current || pausingRef.current) return;
+    const elapsedMs = turnStartRef.current !== null ? Math.max(0, Date.now() - turnStartRef.current) : null;
+    turnStartRef.current = null;
+    setPending({ text: trimmed, elapsedMs });
+    speech.setState("idle");
+  };
+
+  const speech = useSpeech(handleFinalTranscript);
 
   useEffect(() => {
     fetch(`/api/sessions/${id}`)
@@ -209,6 +238,28 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     previewIfSafe();
   }
 
+  // Send the reviewed transcript, carrying the speaking duration captured
+  // when the mic was stopped (not now) so editing time isn't counted as
+  // delivery time.
+  function sendPending() {
+    if (!pending || !pending.text.trim() || sending) return;
+    handleUserTurn(pending.text, pending.elapsedMs);
+  }
+
+  // Throw the draft away and start listening again from scratch.
+  function redoPending() {
+    setPending(null);
+    turnStartRef.current = Date.now();
+    if (speech.supported) speech.startListening();
+  }
+
+  // Throw the draft away and go idle — the normal mic + type controls return.
+  function discardPending() {
+    setPending(null);
+    turnStartRef.current = Date.now();
+    speech.setState("idle");
+  }
+
   // Grades the conversation so far without ending it — the session stays
   // resumable (e.g. if a slow/unreliable free model made you want to bail
   // mid-conversation, you still get feedback on what you did, and can come
@@ -239,7 +290,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   return (
     <main className="mx-auto flex h-full max-w-2xl flex-col p-6">
       <div className="flex-1 overflow-y-auto rounded-2xl border border-hairline bg-ink-800 p-6">
-        <div className="space-y-5">
+        <div className="space-y-5" role="log" aria-live="polite" aria-label="Conversation transcript">
           {turns.map((t, i) => (
             <div key={i} className="transcript-line">
               <span
@@ -282,76 +333,138 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
           </p>
         )}
 
-        {speech.supported && (
-          <div className="flex flex-col items-center gap-2">
-            <div className="flex items-center justify-center gap-3">
+        {pending !== null ? (
+          <div
+            role="group"
+            aria-label="Review your spoken turn before sending"
+            className="flex flex-col gap-2 rounded-2xl border border-verdigris-500/40 bg-ink-800 p-4"
+          >
+            <label htmlFor="stt-review" className="font-mono text-xs tracking-[0.15em] text-verdigris-400 uppercase">
+              Review — fix anything the mic got wrong
+            </label>
+            <textarea
+              id="stt-review"
+              autoFocus
+              rows={4}
+              className="w-full rounded-lg border border-hairline bg-ink-900 p-3 text-sm leading-relaxed text-parchment-100 focus:border-ember-500"
+              value={pending.text}
+              onChange={(e) => setPending((p) => (p ? { ...p, text: e.target.value } : p))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  sendPending();
+                }
+              }}
+              disabled={sending}
+            />
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  if (speech.state === "listening") {
-                    speech.stopListening();
-                  } else {
-                    turnStartRef.current = Date.now();
-                    speech.startListening();
-                  }
-                }}
-                disabled={sending || ended || pausing || speech.state === "thinking" || speech.state === "speaking"}
-                className={`flex h-16 w-16 items-center justify-center rounded-full text-2xl transition ${
-                  speech.state === "listening"
-                    ? "mic-listening bg-rust-500 text-ink-950"
-                    : "bg-ember-500 text-ink-950 hover:bg-ember-400"
-                } disabled:opacity-40`}
-                aria-label={speech.state === "listening" ? "I'm done talking" : "Start talking"}
+                onClick={sendPending}
+                disabled={sending || !pending.text.trim()}
+                className="rounded-full bg-ember-500 px-4 py-2 text-sm font-medium text-ink-950 transition hover:bg-ember-400 disabled:opacity-40"
               >
-                🎙️
+                {sending ? "Sending…" : "Send"}
               </button>
-              <span className="font-mono text-xs text-parchment-500">{STATE_LABEL[speech.state]}</span>
+              {speech.supported && (
+                <button
+                  type="button"
+                  onClick={redoPending}
+                  disabled={sending}
+                  className="rounded-full border border-hairline px-4 py-2 text-sm text-parchment-300 transition hover:border-verdigris-500/60 hover:text-verdigris-400 disabled:opacity-40"
+                >
+                  Re-record
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={discardPending}
+                disabled={sending}
+                className="rounded-full border border-hairline px-4 py-2 text-sm text-parchment-300 transition hover:border-rust-500/60 hover:text-rust-400 disabled:opacity-40"
+              >
+                Discard
+              </button>
+              <span className="font-mono text-xs text-parchment-500">
+                Enter to send · Shift+Enter for a line break
+              </span>
             </div>
-            {speech.state === "listening" && speech.interimText && (
-              <p className="max-w-md text-center text-sm text-parchment-500 italic">{speech.interimText}</p>
-            )}
           </div>
-        )}
+        ) : (
+          <>
+            {speech.supported && (
+              <div className="flex flex-col items-center gap-2">
+                <div className="flex items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (speech.state === "listening") {
+                        speech.stopListening();
+                      } else {
+                        turnStartRef.current = Date.now();
+                        speech.startListening();
+                      }
+                    }}
+                    disabled={sending || ended || pausing || speech.state === "thinking" || speech.state === "speaking"}
+                    className={`flex h-16 w-16 items-center justify-center rounded-full text-2xl transition ${
+                      speech.state === "listening"
+                        ? "mic-listening bg-rust-500 text-ink-950"
+                        : "bg-ember-500 text-ink-950 hover:bg-ember-400"
+                    } disabled:opacity-40`}
+                    aria-label={speech.state === "listening" ? "I'm done talking" : "Start talking"}
+                  >
+                    🎙️
+                  </button>
+                  <span className="font-mono text-xs text-parchment-500" aria-live="polite">
+                    {STATE_LABEL[speech.state]}
+                  </span>
+                </div>
+                {speech.state === "listening" && speech.interimText && (
+                  <p className="max-w-md text-center text-sm text-parchment-500 italic">{speech.interimText}</p>
+                )}
+              </div>
+            )}
 
-        <form
-          className="flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleUserTurn(textInput);
-          }}
-        >
-          <input
-            className="flex-1 rounded-full border border-hairline bg-ink-800 px-4 py-2 text-sm text-parchment-100 placeholder:text-parchment-500/60 focus:border-ember-500"
-            value={textInput}
-            onChange={(e) => setTextInput(e.target.value)}
-            placeholder={speech.supported ? "…or type instead" : "Type your response"}
-            disabled={sending || ended || pausing}
-          />
-          <button
-            type="submit"
-            className="rounded-full bg-ember-500 px-4 py-2 text-sm font-medium text-ink-950 transition hover:bg-ember-400 disabled:opacity-40"
-            disabled={sending || ended || pausing || !textInput.trim()}
-          >
-            Send
-          </button>
-          <button
-            type="button"
-            onClick={pauseSession}
-            title="Get feedback on the conversation so far without ending it — you can resume later"
-            className="rounded-full border border-hairline px-4 py-2 text-sm text-parchment-300 transition hover:border-verdigris-500/60 hover:text-verdigris-400 disabled:opacity-40"
-            disabled={ended || pausing || speech.state === "listening"}
-          >
-            {pausing ? "Pausing…" : "Pause & get feedback"}
-          </button>
-          <button
-            type="button"
-            onClick={endSession}
-            className="rounded-full border border-hairline px-4 py-2 text-sm text-parchment-300 transition hover:border-rust-500/60 hover:text-rust-400 disabled:opacity-40"
-            disabled={ended || pausing || speech.state === "listening"}
-          >
-            End session
-          </button>
-        </form>
+            <form
+              className="flex gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleUserTurn(textInput);
+              }}
+            >
+              <input
+                className="flex-1 rounded-full border border-hairline bg-ink-800 px-4 py-2 text-sm text-parchment-100 placeholder:text-parchment-500/60 focus:border-ember-500"
+                value={textInput}
+                onChange={(e) => setTextInput(e.target.value)}
+                placeholder={speech.supported ? "…or type instead" : "Type your response"}
+                disabled={sending || ended || pausing}
+              />
+              <button
+                type="submit"
+                className="rounded-full bg-ember-500 px-4 py-2 text-sm font-medium text-ink-950 transition hover:bg-ember-400 disabled:opacity-40"
+                disabled={sending || ended || pausing || !textInput.trim()}
+              >
+                Send
+              </button>
+              <button
+                type="button"
+                onClick={pauseSession}
+                title="Get feedback on the conversation so far without ending it — you can resume later"
+                className="rounded-full border border-hairline px-4 py-2 text-sm text-parchment-300 transition hover:border-verdigris-500/60 hover:text-verdigris-400 disabled:opacity-40"
+                disabled={ended || pausing || speech.state === "listening"}
+              >
+                {pausing ? "Pausing…" : "Pause & get feedback"}
+              </button>
+              <button
+                type="button"
+                onClick={endSession}
+                className="rounded-full border border-hairline px-4 py-2 text-sm text-parchment-300 transition hover:border-rust-500/60 hover:text-rust-400 disabled:opacity-40"
+                disabled={ended || pausing || speech.state === "listening"}
+              >
+                End session
+              </button>
+            </form>
+          </>
+        )}
       </div>
     </main>
   );

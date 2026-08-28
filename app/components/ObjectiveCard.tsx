@@ -95,6 +95,7 @@ function TargetEditor({
     <div className="space-y-2 rounded-lg border border-verdigris-500/30 bg-ink-900 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <select
+          aria-label="Metric to track"
           value={metricKey}
           onChange={(e) => {
             const next = e.target.value as ObjectiveMetric;
@@ -112,6 +113,7 @@ function TargetEditor({
 
         {metric.needsSection && (
           <select
+            aria-label="Section"
             value={sectionKey}
             onChange={(e) => setSectionKey(e.target.value)}
             className="rounded-full border border-hairline bg-ink-800 px-3 py-1.5 text-xs text-parchment-300 outline-none focus:border-ember-500"
@@ -126,6 +128,7 @@ function TargetEditor({
 
         {showModePicker && (
           <select
+            aria-label="Mode scope"
             value={mode}
             onChange={(e) => setMode(e.target.value as SessionMode | "")}
             className="rounded-full border border-hairline bg-ink-800 px-3 py-1.5 text-xs text-parchment-300 outline-none focus:border-ember-500"

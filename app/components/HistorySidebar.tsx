@@ -39,6 +39,10 @@ function relativeTime(ts: number): string {
 export function HistorySidebar() {
   const pathname = usePathname();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  // Discard is permanent (session file + feedback file, no undo — see
+  // lib/store.ts's deleteSession), so the "×" arms an inline confirm rather
+  // than deleting on the first click. One row at a time.
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/sessions")
@@ -52,6 +56,7 @@ export function HistorySidebar() {
   }, [pathname]);
 
   async function discard(id: string) {
+    setConfirmingId(null);
     setSessions((prev) => prev.filter((s) => s.id !== id));
     await fetch(`/api/sessions/${id}`, { method: "DELETE" }).catch(() => {});
   }
@@ -106,14 +111,35 @@ export function HistorySidebar() {
                   </Link>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={() => discard(s.id)}
-                className="shrink-0 px-1 text-parchment-500/60 opacity-0 transition group-hover:opacity-100 hover:text-rust-400"
-                aria-label="Discard session"
-              >
-                ×
-              </button>
+              {confirmingId === s.id ? (
+                <span className="flex shrink-0 items-center gap-1.5 font-mono text-[10px] uppercase">
+                  <button
+                    type="button"
+                    onClick={() => discard(s.id)}
+                    className="text-rust-400 transition hover:text-rust-300"
+                    aria-label="Confirm discard session"
+                  >
+                    delete
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingId(null)}
+                    className="text-parchment-500/70 transition hover:text-parchment-300"
+                    aria-label="Cancel"
+                  >
+                    keep
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmingId(s.id)}
+                  className="shrink-0 px-1 text-parchment-500/60 opacity-0 transition group-hover:opacity-100 hover:text-rust-400"
+                  aria-label="Discard session"
+                >
+                  ×
+                </button>
+              )}
             </div>
           );
         })}
