@@ -1776,3 +1776,26 @@ panel — the app never declared itself dark. Now:
   list is hovered or keyboard-focused, with `scrollbar-gutter: stable` so text never shifts; plus
   `.scroll-fade`, a soft mask at the bottom edge hinting there's more to scroll.
 Checked with a before/after render using the app's compiled CSS, at rest and on hover.
+
+---
+
+## 49. Beta report: Clerk membership joined with database usage
+
+Asked whether beta invitations were tracked anywhere besides Clerk: they weren't. The app has no
+users table by design — Clerk owns membership (invitations, accounts), and the database only sees a
+user once they act (their id on sessions, feedback, goals, rate-limit counters). That split is fine;
+what was missing was one view of both, which is also the beta's whole point (§9.1 of the SaaS plan:
+which modes people use, real cost per user, whether they come back).
+
+`npm run beta:report` (`scripts/beta-report.ts`, `-- --prod` for production via
+`DATABASE_URL_UNPOOLED`) — read-only. Pulls invitations and users from Clerk's backend API and one
+aggregate query from Postgres per user id: sessions (ended), graded sessions and average section
+score (failed/empty grades excluded), modes used, LLM calls all-time / last 7 days (call logs joined
+to sessions for ownership), failed calls, total tokens (`usage.total_tokens`), today's calls vs the
+daily cap (`rate_limits`), last session. Also lists data under ids Clerk doesn't know (unclaimed
+`local-user` imports, deleted accounts) and totals with tokens per session.
+
+First production run (2026-09-30): 1 pending invitation; the owner's account at 15 sessions across
+all six modes, 2.7 average, 90 AI calls (16 failed), ~112k tokens — **~7,400 tokens/session**, the
+first real number for the pricing questions in §6 of the SaaS plan. Against the local database it
+correctly flagged the 15 still-unclaimed `local-user` sessions.
