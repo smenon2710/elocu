@@ -158,7 +158,16 @@ npm run lint
 ## Deployment
 
 Live at **https://elocu-six.vercel.app** — a private beta: Clerk's Access mode is **invite-only**,
-so new people join only by invitation (Clerk dashboard → Users → Invite).
+so new people join only by invitation.
+
+**Inviting a tester.** Clerk dashboard → Users → Invite works, but a dashboard invite carries no
+redirect URL — after accepting, the tester lands wherever the Clerk instance's default home URL
+points, which on a development instance is often `localhost` (a dead end on their machine). So
+either set the instance's home URL to `https://elocu-six.vercel.app` in the Clerk dashboard, or
+create invitations through Clerk's backend API with
+`redirectUrl: "https://elocu-six.vercel.app/sign-up"` — the app's `<SignUp>` picks up the
+invitation ticket itself. **Resending** = revoke the pending invitation and create a new one (Clerk
+has no resend call); the old email's link stops working, so tell the tester to use the newest one.
 
 | Piece | Where |
 |---|---|
@@ -187,7 +196,7 @@ do. One read-only command joins the two:
 npm run beta:report -- --prod   # production (uses DATABASE_URL_UNPOOLED); omit --prod for local
 ```
 
-It lists invitations (pending/accepted/…), and per account: joined, last active, sessions (and how
+It lists invitations (pending/accepted/expired — revoked ones aren't shown), and per account: joined, last active, sessions (and how
 many ended), graded sessions and average score, modes used, AI calls (all-time and last 7 days),
 failed calls, tokens, today's usage against the daily cap, and last session — plus any data under a
 user id Clerk doesn't know (e.g. unclaimed `local-user` imports), and totals with tokens per session.
