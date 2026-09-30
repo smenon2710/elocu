@@ -139,10 +139,11 @@ npm run lint
   grading feedback honest, and it applies to every mode, not just Pitch.
 - **Sessions can be paused** (`/api/sessions/[id]/pause`) to get feedback on the conversation so
   far without ending it — the session stays resumable, unlike `/api/sessions/[id]/end` (permanent).
-  Both routes are idempotent about the grading LLM call itself: `/end` never regrades once feedback
-  exists, and `/pause` skips the call (returns the cached feedback) whenever nothing's changed since
-  the last pause (`Feedback.gradedTurnCount`, `lib/types.ts`) — it still regrades for real once a new
-  turn is added, or if the previous attempt actually failed. `/api/sessions/[id]/regrade` is the
+  Both routes are idempotent about the grading LLM call itself, keyed on `Feedback.gradedTurnCount`
+  (`lib/types.ts`): `/pause` skips the call (returns the cached feedback) whenever nothing's changed
+  since the last pause, and `/end` reuses cached feedback on repeat calls or revisits — but both
+  regrade for real when turns were added since that feedback was generated (pause → keep talking →
+  end), or when an un-ended session's last attempt actually failed. `/api/sessions/[id]/regrade` is the
   escape hatch for a session that already ended with `gradingFailed` (a parse failure or a provider
   outage): it re-runs grading in place, but only when the cached feedback is a genuine failure
   placeholder, so a good result can't be spent on another call. The feedback page surfaces it as a

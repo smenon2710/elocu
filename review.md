@@ -247,9 +247,16 @@ Mostly known and covered by `saas-plan.md`:
 
 - Every API route is unauthenticated and keyed only on a UUID in the URL — any
   caller can `GET` / `DELETE` any session or `PATCH` any objective. Fine for a
-  single-user local tool; blocking for anything shared.
+  single-user local tool; blocking for anything shared. _(Partly addressed —
+  `lib/store.ts` now rejects any id that isn't a UUID before it reaches a file
+  path, closing `../`-style traversal. Access control itself is still
+  `saas-plan.md` Phase 1.)_
 - File size (5MB) and text (20k chars) caps are enforced (`api/documents/route.ts`)
-  — good. But there's **no rate limiting** on the LLM-backed routes; a loop
-  hitting `POST /api/sessions` burns provider quota with no ceiling.
+  — good. _(Now also enforced at session creation — pasted text is built
+  client-side and never went through the upload route, so it was uncapped;
+  `sanitizeDocumentRefs()` in `lib/documents.ts` applies the same 20k cap plus a
+  10-doc limit. See `plan.md` §42.)_ But there's **no rate limiting** on the
+  LLM-backed routes; a loop hitting `POST /api/sessions` burns provider quota
+  with no ceiling.
 - Passing `user: sessionId` to providers for abuse tracing (`llm.ts:133`) is
   good practice — keep it.
