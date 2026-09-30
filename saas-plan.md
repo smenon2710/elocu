@@ -209,3 +209,141 @@ calls, not technical questions with one right answer:
    closest reference point, not generic SaaS pricing benchmarks.
 4. **Whether to preserve existing local dev-session data** into the first production database, or
    start clean (§2.4).
+
+---
+
+## 7. Deploying to Vercel: what actually breaks, and the minimum to fix it
+
+The near-term intent is a Vercel deploy — a **private demo first**, not a public or paid launch.
+This section is §5's Phase 0 made concrete for that target, plus the Vercel-specific gotchas that
+aren't obvious from the phased plan.
+
+### 7.1 The hard blocker: the filesystem is read-only on Vercel
+`lib/store.ts` writes under `path.join(process.cwd(), "data", "sessions")`. On Vercel `process.cwd()`
+resolves to `/var/task`, which is **read-only** — the first `POST /api/sessions` hits
+`fs.mkdir(...)` / `fs.writeFile(...)` and throws `EROFS`, and the route 500s. This is not "data is
+lost on redeploy" — nothing works from the first write. The same applies to the JSONL log writes in
+`lib/llm.ts` (`fs.appendFile`, ~line 79) and `lib/grading.ts` (~line 32). `/tmp` is the only writable
+path, and it's per-instance and wiped constantly, not shared across concurrent invocations —
+repointing `data/` there gets a demo where a session vanishes between being created and the first
+message being posted. Not worth doing. **Phase 0 (Postgres) is a hard prerequisite for any Vercel
+deploy, not an optimization.**
+
+### 7.2 Minimum to make a Vercel deploy work
+This is Phase 0 scoped down to exactly what Vercel forces:
+
+1. **Postgres** — Vercel Postgres or Neon (both Neon-backed, both have a free tier). Use the
+   **pooled** connection string; serverless opens a connection per invocation. `DATABASE_URL` goes
+   in Vercel project env vars.
+2. **Rewrite `lib/store.ts` internals** — all 14 exported persistence functions, signatures unchanged, `fs` → SQL
+   (Drizzle or Prisma per §6 item 1). Tables: `sessions`, `feedback`, `objectives`; keep
+   `turns` / `documentRefs` / `sections` / `targets` as JSONB (read/written whole, never queried by
+   element); seed one `local-user` row. The directory-scan functions (`listSessions`,
+   `listGoalLabels`, `listAllFeedback`, `listAttemptsForGoal`) become indexed queries — which also
+   fixes `review.md` §4's "O(n) file reads per page view" finding for free.
+3. **Log writers** — move `llm_call_logs` / `grading_failures` to Postgres tables, or (faster for a
+   demo) guard the `fs.appendFile` calls to no-op on failure and rely on the existing structured
+   `console.log` lines (Vercel captures stdout in its function logs). `/session/[id]/logs` degrades
+   to "no logs" if the tables are skipped — acceptable for a demo.
+4. **Env vars** — copy `.env.local` (gitignored, won't ship) into Vercel project settings:
+   `GROQ_API_KEY`, `OPENROUTER_API_KEY`, any model overrides, `DATABASE_URL`.
+5. **Function duration** — grading (`/end`, `/pause`) is a full LLM round trip with a 45s ceiling in
+   `lib/llm.ts`, and the fallback chain stacks. Vercel **Hobby caps function execution at 10s** —
+   that kills grading. Add `export const maxDuration = 60` to the LLM-backed route segments; a
+   Groq→OpenRouter retry can still exceed 60s, so **Vercel Pro (~$20/mo) is realistically required**.
+6. **The Ollama tier is dead on Vercel** — `localhost:11434` is unreachable (already flagged §3.4).
+   A Groq + OpenRouter double failure becomes a hard user-facing error with no third fallback.
+   Acceptable for a demo; revisit for public per §3.4.
+7. **Existing data** — decide import-vs-clean (§2.4): 14 real sessions (each with a feedback file) + 1 objective
+   sit on disk under `LOCAL_USER_ID` today.
+
+### 7.3 Protect the deploy — there is no auth yet
+Turn on **Vercel Deployment Protection** (password or Vercel-account gate). Until Phase 1 this is the
+*only* thing between the app's Groq/OpenRouter API keys and anyone who finds the URL — there is no
+rate limiting (`review.md` §6), and `getSession(id)` still returns any session to any caller with the
+id (§2.3). With protection on, the Vercel deploy is a genuinely private demo. Public = Phase 1 + Phase
+3, not this.
+
+### 7.4 Smaller Vercel notes
+- Set the Vercel function **region** near the Postgres region — grading latency is user-facing.
+- Run `npm run build` locally first — the modified Next.js (`AGENTS.md`) may not match Vercel's
+  framework auto-detection.
+- Verify `lib/documents.ts` PDF extraction runs under Vercel's Node runtime (some `pdf-parse` builds
+  touch disk).
+
+---
+
+## 8. Mobile app / Google Play: deferred, and the path if it's picked up
+
+Asked directly how to get Elocu onto the Play Store. **Conclusion: defer entirely until web
+monetization is working.** Recorded here so the analysis isn't lost.
+
+**Why defer:** a Play Store app needs a hosted backend (so it's gated on Phase 0/1 regardless), and
+Google Play billing takes a 15–30% cut and is a *second* billing integration on top of Stripe — not
+worth it for demand that hasn't been proven on the web first.
+
+**If/when picked up, three packaging options:**
+- **TWA** (Bubblewrap / PWA Builder) — *recommended*. Runs the deployed site in real Chrome, so the
+  Web Speech API (`webkitSpeechRecognition` STT + `speechSynthesis` TTS — the whole voice layer in
+  `lib/useSpeech.ts`) keeps working with **no rewrite**. Needs: a public HTTPS domain, a PWA manifest
+  (`app/manifest.ts`), `/.well-known/assetlinks.json` with the app's signing-key fingerprint (Digital
+  Asset Links), a Play Console account ($25 one-time), a **privacy policy URL** (mandatory — mic
+  recording plus transcripts/resumes sent to third-party LLMs; already flagged §3.5), and the Play
+  Data Safety declaration.
+- **Capacitor** — medium effort. Android System WebView does **not** implement
+  `webkitSpeechRecognition`, so STT breaks; `lib/useSpeech.ts` would need rewriting against
+  `@capacitor-community/speech-recognition` + `text-to-speech`. Only worth it if a more native shell
+  or offline capability becomes a real requirement.
+- **React Native / Expo** — a full rewrite, not a conversion.
+
+**Interim option:** ship the web **PWA** (manifest + installable, no store listing, no review
+process) — same voice support as TWA, zero billing complications.
+
+**Mobile-web gaps to close first regardless** (all in `review.md` item 1):
+- History sidebar is `hidden … sm:flex` (`HistorySidebar.tsx`) — phones have no way back to past
+  sessions.
+- The 4-control session action bar (`app/(app)/session/[id]/page.tsx`) overflows a narrow viewport.
+- `lib/voiceCategories.ts`'s curated allowlist is desktop macOS/Windows/Chrome voice names, so on
+  Android every voice is filtered out and it falls back to the raw list — add Android (Google TTS)
+  voice names. (Keep the list small per the standing voice-curation preference — see `plan.md` §39.)
+
+---
+
+## 9. Sequencing refinements and open questions before starting
+
+### 9.1 Two refinements to §5's phasing
+1. **Before Phase 0, compute LLM cost per session** from the existing `data/logs/llm-*.jsonl`
+   token-usage data (§1 notes it's already logged per call). It's the direct input to the free-tier
+   cap and price point in §6 items 2–3 — picking those numbers without it is a guess. Small analysis,
+   high leverage.
+2. **Insert a private free beta between Phase 1 and Phase 2** — Vercel Deployment Protection, ~10–20
+   real users, a few weeks, no billing. It's the only way to get real usage signal (which modes
+   matter, real cost per user, willingness to pay) before committing to a pricing structure. §6 items
+   2–3 can't be answered credibly without it.
+3. Streaming (`review.md` item 4) and the mobile-web fixes (§8) should land **before any public
+   launch** — they're conversion-critical — but not before a private beta.
+
+### 9.2 Cheap and worth doing now
+The real USPTO trademark search + domain / app-store availability check on "Elocu" (`plan.md` §1
+flags it as never properly cleared) — before a domain, a Stripe product, and any store listing are
+all named after it.
+
+### 9.3 Open questions needing the product owner's answers (extends §6)
+- **Target user** — job seekers / students / working professionals? Sets the price anchor
+  (interview-prep tools $20–50/mo vs. practice-habit apps $7–13/mo).
+- **Any B2B / institutional angle** (career centers, universities, bootcamps buying seats)? That's
+  the teams/orgs data model §4 scoped out — if it's real, it should shape the Phase 0 schema *now*,
+  not be retrofitted. (The repo path is `AGS_Purdue`, so worth asking explicitly.)
+- **Model shape** — flat monthly subscription (§3.2's recommendation), pay-per-session credits, or
+  one-time? Any price point already in mind?
+- **Timeline / context** — a launch date, demo day, class, or accelerator this is tied to?
+- **Infra budget** — Vercel Pro (~$20/mo) + auth provider + Postgres + carrying LLM cost through a
+  free beta; solo-bootstrapped or funded?
+- **Auth provider** (§6 item 1) — Clerk / Supabase Auth / Auth.js. Drives the Postgres host choice:
+  Supabase Auth → Supabase Postgres (do them together); Clerk / Auth.js → Neon or Vercel Postgres.
+- **ORM** — Drizzle or Prisma. Default to Drizzle for a project this size absent a preference.
+- **Existing 14 sessions** — import under a seed account or start clean (§2.4).
+
+### 9.4 Next step when work resumes
+Answer **target-user, B2B-angle, and auth-provider first** — they change what Phase 0 builds.
+Everything else can be decided as Phase 0 lands.
