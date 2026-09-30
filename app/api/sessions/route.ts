@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { listSessions, saveSession } from "@/lib/store";
 import { getNextInterviewerMessage } from "@/lib/conversation";
+import { sanitizeDocumentRefs } from "@/lib/documents";
 import {
   DEFAULT_PITCH_TIME_LIMIT_SEC,
   LOCAL_USER_ID,
   PITCH_TIME_LIMITS_SEC,
-  type DocumentRef,
   type Session,
   type SessionMode,
 } from "@/lib/types";
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   if (!topic && mode !== "orator") {
     return NextResponse.json({ error: "topic is required" }, { status: 400 });
   }
-  const documentRefs: DocumentRef[] = Array.isArray(body?.documentRefs) ? body.documentRefs : [];
+  const documentRefs = sanitizeDocumentRefs(body?.documentRefs);
 
   // Only pitch mode has a time budget; anything else stays null rather than
   // silently accepting a stray value from the client for a mode it doesn't apply to.
