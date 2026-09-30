@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiUserId, unauthorizedResponse } from "@/lib/auth";
+import { consumeLlmQuota, rateLimitedResponse } from "@/lib/rateLimit";
 import { randomUUID } from "crypto";
 import { listSessions, saveSession } from "@/lib/store";
 import { getNextInterviewerMessage } from "@/lib/conversation";
@@ -50,6 +51,11 @@ export async function POST(req: NextRequest) {
 
   const goalLabel: string | null =
     typeof body?.goalLabel === "string" && body.goalLabel.trim() ? body.goalLabel.trim().slice(0, 100) : null;
+
+  // Checked before anything is saved: a rate-limited start creates no
+  // session (which would otherwise sit in history with no opening line).
+  const quota = await consumeLlmQuota(userId);
+  if (!quota.ok) return rateLimitedResponse(quota);
 
   const session: Session = {
     id: randomUUID(),

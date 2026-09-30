@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiUserId, unauthorizedResponse } from "@/lib/auth";
+import { consumeLlmQuota, rateLimitedResponse } from "@/lib/rateLimit";
 import { getSession, saveSession } from "@/lib/store";
 import { getNextInterviewerMessage, shouldAutoEnd } from "@/lib/conversation";
 import { stripNul } from "@/lib/documents";
@@ -38,6 +39,11 @@ export async function POST(
   // numbers (see lib/grading.ts's pitch timing block). Clamped to a sane
   // ceiling (30 min) and floored at 0 so a clock skew or stale ref can't
   // produce a nonsensical duration.
+  // Before the user's turn is recorded: a rate-limited turn is rejected
+  // whole (the client puts the text back), never saved without a reply.
+  const quota = await consumeLlmQuota(userId);
+  if (!quota.ok) return rateLimitedResponse(quota);
+
   const rawElapsedMs = typeof body?.elapsedMs === "number" && Number.isFinite(body.elapsedMs) ? body.elapsedMs : 0;
   const elapsedMs = Math.min(Math.max(rawElapsedMs, 0), 30 * 60 * 1000);
 

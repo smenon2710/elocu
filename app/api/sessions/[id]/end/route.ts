@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiUserId, unauthorizedResponse } from "@/lib/auth";
+import { consumeLlmQuota, rateLimitedResponse } from "@/lib/rateLimit";
 import { getFeedback, getSession, saveFeedback, saveSession } from "@/lib/store";
 import { emptyTranscriptFeedback, gradeSession } from "@/lib/grading";
 
@@ -40,15 +41,23 @@ export async function POST(
     }
   }
 
+  // Nothing to grade if the session ended before any answer was given (e.g.
+  // ended right after the opening question) — skip the LLM call entirely
+  // rather than silently producing meaningless placeholder scores.
+  const hasUserTurns = session.turns.some((t) => t.speaker === "user");
+
+  // Checked before endedAt is set: a rate-limited End leaves the session open
+  // (and resumable) rather than ended with no grade.
+  if (hasUserTurns) {
+    const quota = await consumeLlmQuota(userId);
+    if (!quota.ok) return rateLimitedResponse(quota);
+  }
+
   if (!session.endedAt) {
     session.endedAt = Date.now();
     await saveSession(session);
   }
 
-  // Nothing to grade if the session ended before any answer was given (e.g.
-  // ended right after the opening question) — skip the LLM call entirely
-  // rather than silently producing meaningless placeholder scores.
-  const hasUserTurns = session.turns.some((t) => t.speaker === "user");
   const feedback = hasUserTurns ? await gradeSession(session) : emptyTranscriptFeedback(session);
   await saveFeedback(userId, feedback);
 

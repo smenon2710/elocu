@@ -1,4 +1,4 @@
-import { bigint, bigserial, boolean, index, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { bigint, bigserial, boolean, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import type { DocumentRef, FeedbackSections, ObjectiveTarget, SessionMode, TranscriptTurn } from "../types";
 
 // Every user-owned table carries `user_id`, and every query in lib/store.ts
@@ -97,4 +97,19 @@ export const gradingFailures = pgTable(
     raw: text("raw").notNull(),
   },
   (t) => [index("grading_failures_session_idx").on(t.sessionId)]
+);
+
+// Per-user LLM call counters for lib/rateLimit.ts — one row per user, per
+// window size ("minute" | "day"), per window. Fixed windows keyed by the
+// window's start (epoch ms), so a single upsert both creates and increments
+// a counter atomically. Old windows are pruned as new days start.
+export const rateLimits = pgTable(
+  "rate_limits",
+  {
+    userId: text("user_id").notNull(),
+    bucket: text("bucket").notNull(),
+    windowStart: bigint("window_start", { mode: "number" }).notNull(),
+    count: integer("count").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.bucket, t.windowStart] })]
 );

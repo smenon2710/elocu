@@ -25,7 +25,7 @@ export function RetryGradingButton({ sessionId }: { sessionId: string }) {
       if (data.feedback && !data.feedback.gradingFailed) {
         router.refresh();
       } else {
-        setError("Grading failed again — the provider may still be having trouble. Try once more in a moment.");
+        setError(data.error ?? "Grading failed again — the provider may still be having trouble. Try once more in a moment.");
         setBusy(false);
       }
     } catch {

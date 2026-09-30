@@ -96,6 +96,19 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         body: JSON.stringify({ text, ...(elapsedMs !== null ? { elapsedMs } : {}) }),
       });
       const data = await res.json();
+      if (res.status === 429) {
+        // Rate-limited: the server saved nothing, so take the optimistic turn
+        // back off the transcript and return the text to the input, ready to
+        // send again once the limit resets.
+        setTurns((prev) => prev.slice(0, -1));
+        setTextInput(text);
+        setError(data.error);
+        setSending(false);
+        processingRef.current = false;
+        turnStartRef.current = Date.now();
+        speech.setState("idle");
+        return;
+      }
       if (data.error) setError(data.error);
       if (data.session) setTurns(data.session.turns);
       setSending(false);
@@ -216,10 +229,20 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     turnStartRef.current = null;
     speech.stopListening();
     try {
-      await fetch(`/api/sessions/${id}/end`, { method: "POST" });
-    } finally {
-      router.push(`/session/${id}/feedback`);
+      const res = await fetch(`/api/sessions/${id}/end`, { method: "POST" });
+      if (res.status === 429) {
+        // Not graded and not ended (the server checks the limit first) —
+        // stay on the session so it can be ended once the limit resets.
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? "Too many requests — try again shortly.");
+        endingRef.current = false;
+        setEnded(false);
+        return;
+      }
+    } catch {
+      // fall through to the feedback page, which explains if nothing's there
     }
+    router.push(`/session/${id}/feedback`);
   }
 
   // Previews a voice/style change against the actual most recent AI line
@@ -282,10 +305,18 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     setPausing(true);
     speech.stopListening();
     try {
-      await fetch(`/api/sessions/${id}/pause`, { method: "POST" });
-    } finally {
-      router.push(`/session/${id}/feedback`);
+      const res = await fetch(`/api/sessions/${id}/pause`, { method: "POST" });
+      if (res.status === 429) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? "Too many requests — try again shortly.");
+        pausingRef.current = false;
+        setPausing(false);
+        return;
+      }
+    } catch {
+      // fall through to the feedback page, which explains if nothing's there
     }
+    router.push(`/session/${id}/feedback`);
   }
 
   if (loading) return <main className="p-8 font-mono text-sm text-parchment-500">Loading…</main>;

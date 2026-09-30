@@ -107,6 +107,17 @@ app, then hand the imported rows to your account:
 npm run db:claim-local -- you@example.com   # or your Clerk user_… id
 ```
 
+### Rate limits
+
+Every route that calls an LLM — starting a session, each reply, retry, pause/end grading, regrade,
+and "Suggest targets" — draws from one per-user budget: **20 calls a minute and 300 a day** by
+default (a full session is about 15), set with `RATE_LIMIT_PER_MINUTE` / `RATE_LIMIT_PER_DAY`.
+Over the limit, the route returns `429` with a readable message and `Retry-After`, and nothing is
+half-done: a limited reply isn't saved (the session page puts the text back in the input), a limited
+End leaves the session open, and a limited start creates no session. Anything that doesn't reach a
+model (a cached pause, a retry with nothing pending) isn't counted. Counters live in the
+`rate_limits` table (`lib/rateLimit.ts`); windows are fixed (per UTC minute / UTC day).
+
 ### LLM providers
 
 Elocu calls out to an LLM for two things: the live conversation loop and the post-session grading

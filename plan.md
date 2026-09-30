@@ -1705,3 +1705,45 @@ Live at **https://elocu-six.vercel.app** (Vercel project `elocu`, GitHub-connect
 
 **Next:** invite beta users, per-user rate limits on LLM routes, custom domain (→ Clerk production
 keys) — see `saas-plan.md` §9.4.
+
+---
+
+## 47. Per-user rate limits on the LLM routes
+
+Sign-in (§45) plus invite-only (§46) decide *who* can use the app, but nothing capped how much one
+account — or one runaway client loop — could spend. `review.md` §6 had this as the last gap before
+anything public.
+
+**Design**
+- **In Postgres, not a new service.** A `rate_limits` table (`user_id`, `bucket`, `window_start`,
+  `count`), fixed windows per UTC minute and UTC day. Upstash/Redis would be the usual choice at
+  scale; for a beta, one more vendor and key isn't worth it when every request already talks to
+  Postgres.
+- **One atomic statement per call:** `INSERT … VALUES (minute row), (day row) ON CONFLICT DO UPDATE
+  SET count = count + 1 RETURNING …`. No read-then-write, so concurrent requests can't both see
+  "under the limit". Denied attempts still count, so hammering doesn't help.
+- **One shared budget** across every LLM route (start, reply, retry, pause, end, regrade, suggest).
+  Defaults **20/min, 300/day** — a full session is ~15 calls, so ~20 sessions/day; env-tunable
+  (`RATE_LIMIT_PER_MINUTE` / `RATE_LIMIT_PER_DAY`). To be revisited with real beta usage.
+- **Charged right before the model call**, after each route's cache checks — a repeat pause with no
+  new turns, an already-graded End, or a retry with nothing pending cost nothing.
+- **Nothing half-done on a 429.** `/messages` checks before recording the user's turn; `/end` checks
+  before setting `endedAt`; `POST /api/sessions` checks before creating anything. The session page
+  handles 429 by taking the optimistic turn back and restoring the text, and by staying put (not
+  navigating to an empty feedback page) on a limited End/Pause. The regrade button now shows the
+  server's message instead of always "grading failed again".
+- **Fails open** if the counter write itself errors — a database blip shouldn't also take down every
+  AI feature. Old windows are pruned on each user's first call of a new day (no cron).
+
+**Verification** (Postgres 17): limiter unit checks 10/10 — per-minute and per-day caps, correct
+`Retry-After` (seconds to the next minute / UTC midnight), windows roll over, per-user isolation,
+pruning to 2 rows, and **12 concurrent calls against a limit of 5 → exactly 5 allowed**. Over HTTP
+with a signed-in Clerk user and a 2/day cap, 12/12: calls 1–2 allowed; the 3rd message → 429 with
+`Retry-After` and a readable message, and was **not** saved; End → 429 and the session stayed open;
+a new session → 429 and none created; suggest → 429; a no-op retry and non-AI routes unaffected.
+(A first run with a 2/*minute* cap "failed" because the test crossed a minute boundary mid-run —
+the counters showed 2 calls in :54 then a fresh window at :55, exactly as designed; the day cap
+makes the test deterministic.)
+
+**Deploy note:** migration `0001_rate_limits` must be applied to Neon *before* this code ships —
+until it is, the limiter fails open (allows everything) rather than breaking the routes.
