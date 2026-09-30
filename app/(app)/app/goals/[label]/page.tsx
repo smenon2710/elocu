@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getCurrentUserId } from "@/lib/auth";
 import { notFound } from "next/navigation";
 import { listAttemptsForGoal } from "@/lib/store";
 import { MODE_LABELS } from "@/lib/progress";
@@ -20,7 +21,7 @@ function sectionAverage(sections: FeedbackSections): number {
 export default async function GoalPage({ params }: { params: Promise<{ label: string }> }) {
   const { label: encodedLabel } = await params;
   const label = decodeURIComponent(encodedLabel);
-  const attempts = await listAttemptsForGoal(label);
+  const attempts = await listAttemptsForGoal(await getCurrentUserId(), label);
 
   if (attempts.length === 0) notFound();
 

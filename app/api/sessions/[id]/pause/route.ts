@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getApiUserId, unauthorizedResponse } from "@/lib/auth";
 import { getFeedback, getSession, saveFeedback } from "@/lib/store";
 import { emptyTranscriptFeedback, gradeSession } from "@/lib/grading";
+
+// LLM-backed: a Groq timeout falling back to OpenRouter can take ~90s (two
+// 45s ceilings, lib/llm.ts) — set explicitly rather than relying on the
+// host's default function timeout, which varies by platform and plan.
+export const maxDuration = 120;
 
 /**
  * Grades the session's current transcript without ending it — unlike /end,
@@ -24,7 +30,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const session = await getSession(id);
+  const userId = await getApiUserId();
+  if (!userId) return unauthorizedResponse();
+  const session = await getSession(userId, id);
   if (!session) {
     return NextResponse.json({ error: "session not found" }, { status: 404 });
   }
@@ -32,14 +40,14 @@ export async function POST(
     return NextResponse.json({ error: "session already ended" }, { status: 400 });
   }
 
-  const existingFeedback = await getFeedback(id);
+  const existingFeedback = await getFeedback(userId, id);
   if (existingFeedback && !existingFeedback.gradingFailed && existingFeedback.gradedTurnCount === session.turns.length) {
     return NextResponse.json({ feedback: existingFeedback });
   }
 
   const hasUserTurns = session.turns.some((t) => t.speaker === "user");
   const feedback = hasUserTurns ? await gradeSession(session) : emptyTranscriptFeedback(session);
-  await saveFeedback(feedback);
+  await saveFeedback(userId, feedback);
 
   return NextResponse.json({ feedback });
 }

@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getApiUserId, unauthorizedResponse } from "@/lib/auth";
 import { getSession, saveSession } from "@/lib/store";
 import { getNextInterviewerMessage, shouldAutoEnd } from "@/lib/conversation";
+
+// LLM-backed: a Groq timeout falling back to OpenRouter can take ~90s (two
+// 45s ceilings, lib/llm.ts) — set explicitly rather than relying on the
+// host's default function timeout, which varies by platform and plan.
+export const maxDuration = 120;
 
 /**
  * Completes an interrupted turn on resume: if the session was closed after
@@ -13,7 +19,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const session = await getSession(id);
+  const userId = await getApiUserId();
+  if (!userId) return unauthorizedResponse();
+  const session = await getSession(userId, id);
   if (!session) {
     return NextResponse.json({ error: "session not found" }, { status: 404 });
   }

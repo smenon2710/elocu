@@ -1564,3 +1564,111 @@ permission prompts.
 
 **Still open from `review.md`**: streaming replies (item 4), the contrast/micro-text pass (item 6),
 unit tests (item 7), `listAllFeedback` caching (item 8).
+
+---
+
+## 44. Phase 0: Postgres, with every query scoped to a user
+
+Decided: **Clerk + Neon** for auth + database, **Drizzle** as the ORM, and **import** the existing
+local sessions. This section is the storage half; Clerk is next (`saas-plan.md` §9.4).
+
+**Why storage first, but user-scoped from day one.** The question was whether auth has to come
+first to stop users seeing each other's insights. What actually enforces that isn't the sign-in
+redirect — it's every query filtering on the owner. That's cheap to build into a new data layer and
+painful to retrofit, and it doesn't depend on which auth provider supplies the id. So the schema
+and every store function carry `user_id` now, and `lib/auth.ts`'s `getCurrentUserId()` is the single
+seam: it returns `LOCAL_USER_ID` today and Clerk's user id next. Until then, a deploy should sit
+behind Vercel Deployment Protection (§7.3 of the SaaS plan).
+
+**What changed**
+- `lib/db/schema.ts` — `sessions`, `feedback` (cascades on session delete), `objectives`, plus
+  `llm_call_logs` and `grading_failures` replacing `data/logs/*.jsonl`. User-owned tables have a
+  text `user_id` (Clerk ids aren't UUIDs) with `(user_id, created_at)` / `(user_id, goal_label)`
+  indexes. Timestamps stay epoch-ms bigints so `lib/types.ts` and all the duration arithmetic are
+  unchanged. Transcripts, doc refs, sections and targets are JSONB — only ever read whole.
+- `lib/db/index.ts` — a lazily-created `pg` pool (so `next build` needs no database), cached across
+  dev hot reloads, registered with `@vercel/functions`' `attachDatabasePool` so Vercel closes idle
+  clients before suspending an instance. `pg` rather than Neon's HTTP driver so the same code runs
+  against a local Docker Postgres and Neon's pooled endpoint.
+- `lib/store.ts` — same functions, now `(userId, …)`. Upserts use `ON CONFLICT … DO UPDATE … WHERE
+  user_id = <caller>`, so reusing another user's id can't overwrite their row; `saveFeedback` also
+  refuses to write feedback for a session the caller doesn't own. The directory scans became
+  indexed queries — `listAllFeedback` is one join, which retires `review.md` §4's per-page-view
+  file-read cost.
+- Every route and server page gets the user from `getCurrentUserId()`. The call-log page now checks
+  session ownership *before* reading logs (log rows are keyed by session, not user).
+- LLM-backed routes export `maxDuration = 120` (worst case is two 45s provider timeouts). While
+  here, `saas-plan.md` §7.2's "Hobby caps at 10s, Pro required" turned out to be stale — Vercel's
+  docs now give Hobby a 300s maximum under Fluid compute; corrected there.
+- `npm run db:generate` / `db:migrate` (drizzle-kit; migrations committed under `drizzle/`) and
+  `npm run db:import-local` (`scripts/import-local-data.ts`) — idempotent: rows that exist are
+  skipped, logs only import into an empty table. Both load `.env.local` via `@next/env`.
+
+**A real bug the import surfaced.** One real interview session had a `.docx` resume attached.
+`extractText` handled PDF and "everything else as UTF-8", so the Word file's zip bytes were stored
+as the resume text (`review.md` had flagged this) — and its NUL bytes are something Postgres text
+and JSONB can't hold, so the insert failed outright. Fixed three ways: uploads that contain NUL
+bytes are rejected with "upload a PDF or .txt, or paste the text" (400, not 500); user-supplied
+document text and turn text have NUL stripped before storage; the import strips it too so that
+session still came across.
+
+**Verification** (Postgres 17 in Docker): migration applied; import brought in all 15 sessions,
+15 feedback rows, 1 goal, 201 call logs, 4 grading failures, and a second run imported nothing. A
+two-user store test passed all 17 checks — the other user can't read, list, overwrite, or delete a
+session, its feedback, or a goal, via any function; invalid ids read as not found; deleting a
+session cascades its feedback. `next build` succeeds with no database configured. Against
+`next start` on the database: create → turn → pause (3 turns graded) → turn → end (5 graded) →
+Insights (all 15 imported sessions, Focus next, word habits) / feedback / call log (10 Groq calls,
+from the table) / goal page all 200, an unknown session 404s, delete removes session + feedback. A
+fake `.docx` upload returns the new 400; a `.txt` still works.
+
+**Not done yet:** Clerk (next), creating the Neon database and running migrate + import against it,
+and reassigning the imported `local-user` rows to the owner's Clerk id once it exists.
+
+---
+
+## 45. Phase 1: sign-in with Clerk
+
+Builds on §44's user-scoped storage: the only thing missing was a real user id, and a door.
+
+**Clerk v7 ("Core 3", March 2026) differs from what's commonly documented** — `SignedIn`/`SignedOut`
+were removed for `<Show when="signed-in">`, `createRouteMatcher` is deprecated in favor of checking
+auth in each resource, and there's no runtime keyless mode any more (temporary keys come from the
+Clerk CLI). Built against the installed package's own type definitions, not memory.
+
+**What changed**
+- `proxy.ts` (Next 16's name for middleware) — `clerkMiddleware()` on every request, with
+  `signInUrl`/`signUpUrl` so server-side redirects land on our pages, not Clerk's hosted one. No URL
+  gating in it, per Clerk's deprecation — which matches Next's own guidance that Proxy shouldn't be
+  the authorization layer.
+- `lib/auth.ts` — two helpers with different contracts, because Clerk's `auth.protect()` treats a
+  request inside a route handler as a *page* request and answers with a sign-in redirect (found in
+  testing: every API call returned a 307 to HTML that the app's `fetch().json()` would choke on):
+  - `getCurrentUserId()` for pages/layouts — `auth.protect()`, redirects signed-out visitors.
+  - `getApiUserId()` + `unauthorizedResponse()` for API routes — the id or null, and a JSON 401.
+- `app/(app)/layout.tsx` calls `getCurrentUserId()`, so every app page (including client-rendered
+  ones that only fetch through the API) redirects before rendering. Every API route starts with the
+  401 guard — including `/api/documents` and `/api/objectives/suggest`, which touch no user data and
+  so had no check at all after §44; the latter spends OpenRouter budget.
+- `<ClerkProvider>` in the root layout, themed to the ink/ember palette (`app/clerkAppearance.ts`);
+  `/sign-in` and `/sign-up` pages; `<UserButton>` in the header.
+- `npm run db:claim-local -- <email | user_id>` (`scripts/claim-local-data.ts`) — moves the
+  imported `local-user` rows to a real account in one transaction; looks an email up via Clerk's
+  backend API. Idempotent (nothing left to move on a second run).
+
+**Verification** (temporary Clerk dev keys from `clerk init --accountless`, run in a scratch folder
+so nothing touched this repo's files or `.env.local`; Postgres 17 in Docker):
+- Signed out: `/`, `/sign-in`, `/sign-up` 200; every app page 307 → `/sign-in?redirect_url=…`;
+  every API route (sessions CRUD, messages/end/pause, documents, objectives, suggest) 401 JSON; a
+  DELETE on a real session changed nothing.
+- Two real Clerk users via session tokens, all through HTTP — 18/18 passed: the claim moved 15
+  sessions/15 feedback/1 goal to alice; bob's history, goal labels, and Insights are empty; bob's
+  GET/feedback/messages/end/pause/regrade/retry on alice's session → 404, his DELETE leaves it
+  intact, he can't edit or delete her goal; alice can't read bob's session; each can delete only
+  their own. Server pages: bob gets 404 on alice's feedback and call-log pages and empty-state
+  Insights; alice's Insights shows all 15.
+- `next build` succeeds without Clerk keys (so a Vercel build won't fail before they're added);
+  `next start` without keys refuses to serve — expected, production needs real keys.
+
+**Still open:** sign-up is open to anyone (restrict it in the Clerk dashboard for a private beta),
+and there's no per-user rate limit on LLM routes (`review.md` §6).

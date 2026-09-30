@@ -1,12 +1,13 @@
-import { promises as fs } from "fs";
-import path from "path";
+import { asc, eq } from "drizzle-orm";
+import { db, schema } from "./db";
 import { fetchWithTimeout } from "./fetchWithTimeout";
 
-// One JSONL file per day under data/ (already gitignored) — a local,
-// structured record of every call independent of any provider's own
-// dashboard, so call-volume/cost/latency regressions can be traced back to a
-// session and a call site (conversation vs grading) after the fact.
-const LOG_DIR = path.join(process.cwd(), "data", "logs");
+// Every call is recorded in the llm_call_logs table (lib/db/schema.ts) — a
+// structured record independent of any provider's own dashboard, so
+// call-volume/cost/latency regressions can be traced back to a session and a
+// call site (conversation vs grading) after the fact. (Was one JSONL file
+// per day under data/logs/, which can't be written on Vercel's read-only
+// filesystem.)
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
@@ -59,26 +60,26 @@ interface LogEntry {
 
 async function logCall(entry: LogEntry): Promise<void> {
   try {
-    await fs.mkdir(LOG_DIR, { recursive: true });
-    const day = new Date(entry.startedAt).toISOString().slice(0, 10);
-    const file = path.join(LOG_DIR, `llm-${day}.jsonl`);
-    const line = JSON.stringify({
-      ts: new Date(entry.startedAt).toISOString(),
-      durationMs: Date.now() - entry.startedAt,
-      provider: entry.provider,
-      label: entry.label,
-      sessionId: entry.sessionId ?? null,
-      model: entry.model,
-      messageCount: entry.messageCount,
-      ok: entry.ok,
-      status: entry.status ?? null,
-      error: entry.error ?? null,
-      usage: entry.usage ?? null,
-      providerRequestId: entry.providerRequestId ?? null,
-    });
-    await fs.appendFile(file, line + "\n");
-  } catch {
-    // Logging must never break the actual LLM call path.
+    await db()
+      .insert(schema.llmCallLogs)
+      .values({
+        ts: new Date(entry.startedAt),
+        durationMs: Date.now() - entry.startedAt,
+        provider: entry.provider,
+        label: entry.label,
+        sessionId: entry.sessionId ?? null,
+        model: entry.model,
+        messageCount: entry.messageCount,
+        ok: entry.ok,
+        status: entry.status ?? null,
+        error: entry.error ?? null,
+        usage: entry.usage ?? null,
+        providerRequestId: entry.providerRequestId ?? null,
+      });
+  } catch (err) {
+    // Logging must never break the actual LLM call path — but say so in the
+    // server log (captured by Vercel) rather than failing silently.
+    console.log(`[llm] failed to record call log: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -243,36 +244,32 @@ export interface LoggedCall {
 }
 
 /**
- * Reads back every logged call for a session, across all daily log files (a
- * resumed session can span days) — powers the in-app call-log view so which
- * model actually answered/evaluated a session is visible without grepping
- * files on disk.
+ * Every logged call for a session, oldest first — powers the in-app call-log
+ * view so which model actually answered/evaluated a session is visible
+ * without querying the database by hand. Callers must check the session
+ * belongs to the current user first (lib/store.ts's getSession) — log rows
+ * aren't user-scoped themselves.
  */
 export async function getSessionCallLogs(sessionId: string): Promise<LoggedCall[]> {
-  let files: string[];
-  try {
-    files = await fs.readdir(LOG_DIR);
-  } catch {
-    return [];
-  }
-
-  const logFiles = files.filter((f) => f.startsWith("llm-") && f.endsWith(".jsonl"));
-  const rows: LoggedCall[] = [];
-
-  for (const file of logFiles) {
-    try {
-      const raw = await fs.readFile(path.join(LOG_DIR, file), "utf-8");
-      for (const line of raw.split("\n")) {
-        if (!line.trim()) continue;
-        const entry = JSON.parse(line) as LoggedCall;
-        if (entry.sessionId === sessionId) rows.push(entry);
-      }
-    } catch {
-      // Skip unreadable/corrupt files rather than failing the whole view.
-    }
-  }
-
-  return rows.sort((a, b) => a.ts.localeCompare(b.ts));
+  const rows = await db()
+    .select()
+    .from(schema.llmCallLogs)
+    .where(eq(schema.llmCallLogs.sessionId, sessionId))
+    .orderBy(asc(schema.llmCallLogs.ts));
+  return rows.map((r) => ({
+    ts: r.ts.toISOString(),
+    durationMs: r.durationMs,
+    provider: r.provider as Provider,
+    label: r.label,
+    sessionId: r.sessionId,
+    model: r.model,
+    messageCount: r.messageCount,
+    ok: r.ok,
+    status: r.status,
+    error: r.error,
+    usage: r.usage,
+    providerRequestId: r.providerRequestId,
+  }));
 }
 
 /** Strips ```json fences (if present) and parses. Returns null on any failure. */

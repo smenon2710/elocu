@@ -1,12 +1,10 @@
-import { promises as fs } from "fs";
-import path from "path";
+import { asc, eq } from "drizzle-orm";
 import { computeContentMetrics } from "./contentMetrics";
 import { computeConversationMetrics } from "./conversationMetrics";
 import { computeDeliveryMetrics } from "./deliveryMetrics";
+import { db, schema } from "./db";
 import { chatCompletion, parseJsonObject, type ModelChoice } from "./llm";
 import type { Feedback, FeedbackSection, FeedbackSections, QuotedMoment, Session } from "./types";
-
-const LOG_DIR = path.join(process.cwd(), "data", "logs");
 
 /**
  * The one thing lib/llm.ts's call log can't tell you: WHY a successful call
@@ -20,18 +18,12 @@ const LOG_DIR = path.join(process.cwd(), "data", "logs");
  */
 async function logParseFailure(sessionId: string, reason: string, raw: string): Promise<void> {
   try {
-    await fs.mkdir(LOG_DIR, { recursive: true });
-    const day = new Date().toISOString().slice(0, 10);
-    const file = path.join(LOG_DIR, `grading-failures-${day}.jsonl`);
-    const line = JSON.stringify({
-      ts: new Date().toISOString(),
-      sessionId,
-      reason,
-      raw: raw.slice(0, 4000),
-    });
-    await fs.appendFile(file, line + "\n");
-  } catch {
+    await db()
+      .insert(schema.gradingFailures)
+      .values({ ts: new Date(), sessionId, reason, raw: raw.slice(0, 4000) });
+  } catch (err) {
     // Logging must never break the actual grading path.
+    console.log(`[grading] failed to record parse failure: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -42,32 +34,18 @@ export interface ParseFailure {
   raw: string;
 }
 
-/** Reads back any logged parse/validation failures for a session — the "why did grading fail" detail lib/llm.ts's call log alone can't answer. */
+/**
+ * Any logged parse/validation failures for a session — the "why did grading
+ * fail" detail lib/llm.ts's call log alone can't answer. Same ownership rule
+ * as getSessionCallLogs: check the session is the caller's first.
+ */
 export async function getSessionParseFailures(sessionId: string): Promise<ParseFailure[]> {
-  let files: string[];
-  try {
-    files = await fs.readdir(LOG_DIR);
-  } catch {
-    return [];
-  }
-
-  const logFiles = files.filter((f) => f.startsWith("grading-failures-") && f.endsWith(".jsonl"));
-  const rows: ParseFailure[] = [];
-
-  for (const file of logFiles) {
-    try {
-      const raw = await fs.readFile(path.join(LOG_DIR, file), "utf-8");
-      for (const line of raw.split("\n")) {
-        if (!line.trim()) continue;
-        const entry = JSON.parse(line) as ParseFailure;
-        if (entry.sessionId === sessionId) rows.push(entry);
-      }
-    } catch {
-      // Skip unreadable/corrupt files rather than failing the whole view.
-    }
-  }
-
-  return rows.sort((a, b) => a.ts.localeCompare(b.ts));
+  const rows = await db()
+    .select()
+    .from(schema.gradingFailures)
+    .where(eq(schema.gradingFailures.sessionId, sessionId))
+    .orderBy(asc(schema.gradingFailures.ts));
+  return rows.map((r) => ({ ts: r.ts.toISOString(), sessionId: r.sessionId, reason: r.reason, raw: r.raw }));
 }
 
 // Groq primary: was llama-3.1-8b-instant (switched to after gpt-oss-20b

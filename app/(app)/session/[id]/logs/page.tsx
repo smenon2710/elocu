@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getCurrentUserId } from "@/lib/auth";
 import { notFound } from "next/navigation";
 import { getSession } from "@/lib/store";
 import { getSessionCallLogs, type LoggedCall } from "@/lib/llm";
@@ -23,13 +24,12 @@ function StatusBadge({ ok }: { ok: boolean }) {
 
 export default async function SessionLogsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [session, calls, parseFailures] = await Promise.all([
-    getSession(id),
-    getSessionCallLogs(id),
-    getSessionParseFailures(id),
-  ]);
-
+  // Ownership first: log rows aren't user-scoped, so they're only read once
+  // the session is confirmed to be the caller's.
+  const session = await getSession(await getCurrentUserId(), id);
   if (!session) notFound();
+
+  const [calls, parseFailures] = await Promise.all([getSessionCallLogs(id), getSessionParseFailures(id)]);
 
   const grouped: Record<string, LoggedCall[]> = {};
   for (const c of calls) {

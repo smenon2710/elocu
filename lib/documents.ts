@@ -22,12 +22,12 @@ export function sanitizeDocumentRefs(raw: unknown): DocumentRef[] {
     if (refs.length >= MAX_DOCS_PER_SESSION) break;
     if (!item || typeof item !== "object") continue;
     const r = item as Record<string, unknown>;
-    const text = typeof r.text === "string" ? r.text.trim().slice(0, MAX_DOC_TEXT_CHARS) : "";
+    const text = typeof r.text === "string" ? stripNul(r.text).trim().slice(0, MAX_DOC_TEXT_CHARS) : "";
     if (!text) continue;
     refs.push({
       id: typeof r.id === "string" && r.id ? r.id.slice(0, 64) : randomUUID(),
       kind: VALID_DOC_KINDS.includes(r.kind as DocumentKind) ? (r.kind as DocumentKind) : "other",
-      filename: typeof r.filename === "string" && r.filename ? r.filename.slice(0, MAX_FILENAME_CHARS) : "document",
+      filename: typeof r.filename === "string" && r.filename ? stripNul(r.filename).slice(0, MAX_FILENAME_CHARS) : "document",
       text,
     });
   }
@@ -49,5 +49,19 @@ export async function extractText(file: File): Promise<string> {
     }
   }
 
+  // Anything else is only accepted if it's actually text. A .docx (a zip)
+  // or other binary decoded as UTF-8 is garbage to the model — and its NUL
+  // bytes can't be stored in Postgres at all. NUL never appears in real text,
+  // so it's a reliable binary tell.
+  if (buffer.includes(0)) {
+    throw new UnsupportedDocumentError("That file type isn't supported — upload a PDF or .txt file, or paste the text instead.");
+  }
   return buffer.toString("utf-8").trim();
+}
+
+export class UnsupportedDocumentError extends Error {}
+
+/** Postgres text/JSONB can't hold U+0000 — strip it from anything user-supplied before it's stored. */
+export function stripNul(text: string): string {
+  return text.replace(/\u0000/g, "");
 }

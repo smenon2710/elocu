@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getApiUserId, unauthorizedResponse } from "@/lib/auth";
 import { listGoalLabels } from "@/lib/store";
 import type { SessionMode } from "@/lib/types";
 
@@ -8,6 +9,8 @@ const VALID_MODES: SessionMode[] = ["interview", "conversation", "speech", "orat
 export async function GET(req: NextRequest) {
   const modeParam = req.nextUrl.searchParams.get("mode");
   const mode = VALID_MODES.includes(modeParam as SessionMode) ? (modeParam as SessionMode) : undefined;
-  const goals = await listGoalLabels(mode);
+  const userId = await getApiUserId();
+  if (!userId) return unauthorizedResponse();
+  const goals = await listGoalLabels(userId, mode);
   return NextResponse.json({ goals });
 }

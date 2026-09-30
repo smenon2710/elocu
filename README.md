@@ -11,8 +11,9 @@ flows from there — sessions, feedback, call logs).
 
 See `plan.md` for the full design rationale and decision history (why things are built the way
 they are, bugs found along the way, and what was tried and rejected). This README is the practical
-"how do I run and use this" doc. See `saas-plan.md` for the not-yet-built plan to turn this into a
-multi-tenant, paid product — auth, database migration, billing, the works.
+"how do I run and use this" doc. See `saas-plan.md` for the plan to turn this into a multi-tenant,
+paid product — Postgres storage and Clerk sign-in are built (`plan.md` §44–45); billing, rate
+limits, and the production deploy are next.
 
 ## Modes
 
@@ -46,7 +47,67 @@ npm install
 cp .env.example .env.local
 ```
 
-Then fill in `.env.local`. At minimum you need one working LLM provider — see below.
+Then fill in `.env.local`. You need a Postgres database and at least one working LLM provider —
+see below.
+
+### Database
+
+Everything — sessions, feedback, goals, and the LLM call logs — lives in Postgres (`lib/db/`,
+Drizzle ORM). Every row is owned by a user id and every query is scoped to it (`lib/store.ts`), so
+one user can never read or change another's data.
+
+Local Postgres via Docker (data persists in the `elocu-pg` volume):
+
+```bash
+docker run -d --name elocu-pg -e POSTGRES_PASSWORD=elocu -e POSTGRES_DB=elocu \
+  -v elocu-pg:/var/lib/postgresql/data -p 5432:5432 postgres:17
+```
+
+That matches the `DATABASE_URL` default in `.env.example`. Then create the tables:
+
+```bash
+npm run db:migrate
+```
+
+Coming from the old file store? `npm run db:import-local` copies `data/sessions`, `data/objectives`
+and `data/logs` into the database (safe to re-run — existing rows are skipped; files are left
+alone).
+
+After changing `lib/db/schema.ts`, run `npm run db:generate` to write a new migration into
+`drizzle/` (commit it), then `npm run db:migrate`.
+
+**Production (Vercel + Neon):** set `DATABASE_URL` in the Vercel project to Neon's pooled
+connection string, and run `npm run db:migrate` against it before deploying a schema change
+(`DATABASE_URL=<neon url> npm run db:migrate`).
+
+### Sign-in (Clerk)
+
+Every page past the landing page and every API route requires a signed-in user (Clerk). Create an
+application at https://dashboard.clerk.com (name it "Elocu" — that's what the sign-in card shows),
+enable the sign-in methods you want (e.g. Google + email), and put its keys in `.env.local`:
+
+```bash
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+```
+
+Sign-in/up live at the app's own `/sign-in` and `/sign-up`; the account menu is in the header.
+
+How it's enforced — the redirect is just the front door; the isolation is in the data layer:
+- `app/(app)/layout.tsx` sends signed-out visitors on any app page to `/sign-in`.
+- Every API route starts with `lib/auth.ts`'s `getApiUserId()` and answers a signed-out call with
+  `401` before doing anything (this also keeps strangers from spending your LLM budget).
+- `lib/store.ts` scopes every query to that user id, so one user's sessions, feedback, goals, and
+  Insights are invisible to another — another user's session id reads as `404`.
+- `proxy.ts` runs Clerk on every request; it deliberately doesn't gate by URL pattern (Clerk
+  deprecated that in favor of the per-resource checks above).
+
+**Bringing over pre-sign-in history:** after importing (`npm run db:import-local`), sign up in the
+app, then hand the imported rows to your account:
+
+```bash
+npm run db:claim-local -- you@example.com   # or your Clerk user_… id
+```
 
 ### LLM providers
 
@@ -76,8 +137,8 @@ different model.
 npm run dev
 ```
 
-Open http://localhost:3000 for the landing page, or go straight to http://localhost:3000/app to
-start a session.
+Open http://localhost:3000 for the landing page, or go straight to http://localhost:3000/app — you'll
+be asked to sign in first (needs Postgres running and the Clerk keys set; see Setup).
 
 ```bash
 npm run build   # production build
@@ -114,8 +175,12 @@ npm run lint
 - Interview mode's Structure section is graded explicitly against the **STAR method**
   (Situation/Task/Action/Result) — not a computed metric, a grading-prompt refinement in
   `lib/grading.ts`'s `interviewStructureNote()`.
-- **`lib/store.ts`** — file-based persistence, no database. Sessions and feedback live in
-  `data/sessions/*.json` (gitignored). Swapping to a real DB later is contained to this one file.
+- **`lib/auth.ts`** + **`proxy.ts`** — Clerk sign-in. `getCurrentUserId()` (pages; redirects to
+  `/sign-in`) and `getApiUserId()` (API routes; `401` when signed out) are the only ways code gets a
+  user id. See "Sign-in (Clerk)" above.
+- **`lib/store.ts`** — persistence, on Postgres (`lib/db/schema.ts`). Every function takes the
+  caller's user id (from `lib/auth.ts`'s `getCurrentUserId()`) and filters on it; a row owned by
+  someone else reads as not found and can't be overwritten or deleted.
 - **`lib/useSpeech.ts`** — browser Web Speech API wrapper. Push-to-talk-until-you're-done: the mic
   stays open across pauses (not silence-triggered), tapping it again is how you signal "I'm done."
   A finished spoken turn then lands in an editable **review box** before it's sent
@@ -193,16 +258,15 @@ npm run lint
 ## Logs
 
 Every LLM call — which provider/model actually handled it, latency, token usage, success/failure —
-is logged locally to `data/logs/llm-YYYY-MM-DD.jsonl` (gitignored), independent of any provider's
-own dashboard. Each entry also carries a `providerRequestId`: for OpenRouter this can be looked up
+is recorded in the `llm_call_logs` table, independent of any provider's own dashboard. Each entry also carries a `providerRequestId`: for OpenRouter this can be looked up
 directly via `GET https://openrouter.ai/api/v1/generation?id=<id>` for full cost/token stats on
 that exact call. Grading responses that fail to parse are separately logged (with the raw model
-output) to `data/logs/grading-failures-YYYY-MM-DD.jsonl`.
+output) to the `grading_failures` table. Both are also echoed to the server log.
 
 **In-app**: open any session's feedback screen → "View call log" (`/session/[id]/logs`) to see
 which model answered each conversation turn and which one evaluated the session, with timing and
 status, without touching the terminal.
 
 ```bash
-cat data/logs/llm-*.jsonl | python3 -c "import json,sys; [print(json.loads(l)) for l in sys.stdin]"
+psql "$DATABASE_URL" -c "select ts, provider, model, label, ok, duration_ms from llm_call_logs order by ts desc limit 20"
 ```

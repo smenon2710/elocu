@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getApiUserId, unauthorizedResponse } from "@/lib/auth";
 import { parseObjectiveTarget } from "@/lib/objectives";
 import { suggestObjectiveTargets } from "@/lib/objectiveSuggestion";
 import type { ObjectiveTarget } from "@/lib/types";
+
+// LLM-backed: a Groq timeout falling back to OpenRouter can take ~90s (two
+// 45s ceilings, lib/llm.ts) — set explicitly rather than relying on the
+// host's default function timeout, which varies by platform and plan.
+export const maxDuration = 120;
 
 /**
  * Standalone (not tied to an existing objective id) so it can run against
@@ -9,6 +15,9 @@ import type { ObjectiveTarget } from "@/lib/types";
  * for that goal so the suggestion never repeats one already tracked.
  */
 export async function POST(req: NextRequest) {
+  // No user data is read here, but it's an LLM call — signed-in only, so the
+  // provider budget can't be spent by anyone who finds the endpoint.
+  if (!(await getApiUserId())) return unauthorizedResponse();
   const body = await req.json().catch(() => null);
   const title = typeof body?.title === "string" ? body.title.trim() : "";
   if (!title) {
