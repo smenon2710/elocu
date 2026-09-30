@@ -214,6 +214,10 @@ calls, not technical questions with one right answer:
 
 ## 7. Deploying to Vercel: what actually breaks, and the minimum to fix it
 
+> **Deployed 2026-09-30** — https://elocu-six.vercel.app, private beta (Clerk invite-only). What was
+> actually done, and the two surprises (Clerk production keys need a custom domain; Neon's variables
+> can't be pulled locally), are in `plan.md` §46 and README "Deployment".
+
 The near-term intent is a Vercel deploy — a **private demo first**, not a public or paid launch.
 This section is §5's Phase 0 made concrete for that target, plus the Vercel-specific gotchas that
 aren't obvious from the phased plan.
@@ -267,7 +271,8 @@ live is creating the Neon database, running the migration + import against it, a
 API route needs a Clerk sign-in, and every query is scoped to the user (§2.3 done). What's still
 open: anyone can *sign up* and spend LLM budget, and there's no per-user rate limit (`review.md` §6).
 For a private beta, restrict sign-ups in the Clerk dashboard (allowlist or invitation-only) rather
-than relying on Deployment Protection. Public = rate limits + Phase 3.
+than relying on Deployment Protection. **Done — Access mode is Restricted (invite-only).** Public =
+rate limits + Phase 3.
 
 ### 7.4 Smaller Vercel notes
 - Set the Vercel function **region** near the Postgres region — grading latency is user-facing.
@@ -352,8 +357,10 @@ all named after it.
   get reassigned to the owner's Clerk account when sign-in lands.
 
 ### 9.4 Next step when work resumes
-Phase 0 (`plan.md` §44) and Phase 1 sign-in (`plan.md` §45) are built. To go live: create the Clerk
-production instance + Neon database, set `DATABASE_URL` and the Clerk keys in Vercel, run
-`db:migrate` → `db:import-local` → `db:claim-local` against Neon, and restrict sign-ups for the
-private beta. Before public: per-user rate limiting on the LLM routes. Target-user and B2B still need
-answers before Phase 2 (billing).
+Phase 0 (`plan.md` §44), Phase 1 sign-in (`plan.md` §45), and the private-beta deploy (`plan.md`
+§46) are done. Next, roughly in order:
+1. **Invite beta users** and run §9.1's free beta — the real-usage data billing decisions need.
+2. **Per-user rate limiting on the LLM routes** before anything public (`review.md` §6).
+3. **A custom domain** — needed for Clerk production keys (drops the "Development mode" badge and
+   the dev instance's limits) and settles the naming question in §9.2.
+4. Target-user and B2B answers, then Phase 2 (billing).

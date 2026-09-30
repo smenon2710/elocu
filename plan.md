@@ -1672,3 +1672,36 @@ so nothing touched this repo's files or `.env.local`; Postgres 17 in Docker):
 
 **Still open:** sign-up is open to anyone (restrict it in the Clerk dashboard for a private beta),
 and there's no per-user rate limit on LLM routes (`review.md` §6).
+
+---
+
+## 46. Deployed: Vercel + Neon + Clerk, private beta
+
+Live at **https://elocu-six.vercel.app** (Vercel project `elocu`, GitHub-connected — pushes to
+`main` deploy). How it went, and what wasn't obvious going in:
+
+- **Clerk production keys don't work on `*.vercel.app`** — Clerk requires a domain you own for a
+  production instance. The standard setup without one is development keys on the Vercel URL, which
+  is what's deployed; the cost is a "Development mode" badge on sign-in and the dev instance's
+  limits, both fine for a private beta. A custom domain is the next step to lift that.
+- **Neon via the Vercel integration** (dashboard: Storage → Neon; first-time terms can't be
+  accepted from the CLI). It set `DATABASE_URL` (pooled — the app's) and `DATABASE_URL_UNPOOLED`
+  (direct — used for migrations) for Production *and* Preview, so previews share the production
+  database.
+- **Neon's variables are sensitive: `vercel env pull` returns them empty.** Migrations and the
+  import therefore ran locally with the direct URL copied from the dashboard into `.env.local`
+  (as `DATABASE_URL_UNPOOLED`, a name the app doesn't read, so local dev isn't pointed at prod).
+- **Keys** were copied from `.env.local` into Vercel with `vercel env add` without echoing values;
+  Ollama settings deliberately left out (unreachable from Vercel).
+- **Order:** `db:migrate` → `db:import-local` (15 sessions, 15 feedback, 1 goal, 201 call logs,
+  4 grading failures) → `vercel deploy --prod` → owner signs up → `db:claim-local -- <email>` →
+  verified on Neon: every row belongs to the owner's Clerk id, none left under `local-user`.
+- **Clerk Access mode → Restricted (invite-only)** — without it, anyone with the URL could sign up
+  and spend the Groq/OpenRouter budget.
+
+**Verified on the live site:** `/`, `/sign-in`, `/sign-up` 200; `/app` and `/app/insights` 307 →
+`/sign-in`; every API route (sessions list/create/delete, goals, objectives, suggest, documents)
+401 JSON when signed out; functions run in `iad1`, beside the Neon region.
+
+**Next:** invite beta users, per-user rate limits on LLM routes, custom domain (→ Clerk production
+keys) — see `saas-plan.md` §9.4.

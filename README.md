@@ -76,9 +76,7 @@ alone).
 After changing `lib/db/schema.ts`, run `npm run db:generate` to write a new migration into
 `drizzle/` (commit it), then `npm run db:migrate`.
 
-**Production (Vercel + Neon):** set `DATABASE_URL` in the Vercel project to Neon's pooled
-connection string, and run `npm run db:migrate` against it before deploying a schema change
-(`DATABASE_URL=<neon url> npm run db:migrate`).
+**Production:** see "Deployment" below.
 
 ### Sign-in (Clerk)
 
@@ -145,6 +143,36 @@ npm run build   # production build
 npx tsc --noEmit   # type-check
 npm run lint
 ```
+
+## Deployment
+
+Live at **https://elocu-six.vercel.app** — a private beta: Clerk's Access mode is **invite-only**,
+so new people join only by invitation (Clerk dashboard → Users → Invite).
+
+| Piece | Where |
+|---|---|
+| App | Vercel project `elocu`, connected to GitHub — every push to `main` deploys to production, other branches get preview URLs. Functions run in `iad1` (Washington, D.C.). |
+| Database | Neon Postgres (us-east-1), added through Vercel's Neon integration, which sets `DATABASE_URL` (pooled — what the app uses) and `DATABASE_URL_UNPOOLED` (direct) on the project. |
+| Sign-in | Clerk **development** keys. Clerk production keys can't run on a `*.vercel.app` domain — they need a domain you own — so the sign-in card shows a "Development mode" badge until one is added. |
+| Env vars | `GROQ_API_KEY`, `OPENROUTER_API_KEY`, the model overrides, and both Clerk keys, set for Production and Preview. No Ollama — a local model isn't reachable from Vercel, so a Groq + OpenRouter double failure is a user-facing error there. |
+
+**Schema changes.** Vercel doesn't run migrations. The Neon variables are marked sensitive, so
+`vercel env pull` returns them blank — copy `DATABASE_URL_UNPOOLED` from the Vercel dashboard
+(Storage → the database → `.env.local` tab) into your `.env.local` under that same name (the app
+ignores it), then, before pushing the change:
+
+```bash
+npm run db:generate                                           # writes drizzle/NNNN_*.sql — commit it
+DATABASE_URL="$(grep '^DATABASE_URL_UNPOOLED=' .env.local | cut -d= -f2-)" npm run db:migrate
+```
+
+Preview deployments share the production database (the integration set the same variables for
+both), so test destructive changes locally first.
+
+**First-time setup, for the record:** `vercel link` + `vercel git connect`; Neon via the Vercel
+dashboard (Storage → Neon, accept terms, connect to the project); `vercel env add` for each key;
+`db:migrate` → `db:import-local` → deploy → sign up on the live site → `db:claim-local -- <email>`
+(all against the unpooled Neon URL); then Clerk → Configure → Access mode → Restricted.
 
 ## Architecture
 
