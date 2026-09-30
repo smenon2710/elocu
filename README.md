@@ -149,7 +149,9 @@ npm run lint
   placeholder, so a good result can't be spent on another call. The feedback page surfaces it as a
   "Retry grading" button on the failure banner.
 - **History sidebar** (`app/components/HistorySidebar.tsx`) lists every session, in-progress and
-  completed, linking to the right place (resume vs. view feedback) for each. Discarding a session
+  completed, linking to the right place (resume vs. view feedback) for each. At phone width the
+  sidebar is hidden and the header's "History" button opens the same list (`HistoryList`) in a
+  drawer. Discarding a session
   (which deletes its transcript and feedback, no undo) arms an inline confirm first rather than
   deleting on the first click.
 - **Insights dashboard** (`/app/insights`) — overall average, per-section breakdown, and a
@@ -162,7 +164,12 @@ npm run lint
   diversity everywhere; talk-time ratio and question-asking rate for Conversation; time-budget
   adherence for Pitch. A "Your strength" callout (`lib/progress.ts`'s `getStrengthSummary()`) names
   your top-scoring section instead of leaving it as a bar to interpret, and the section/mode
-  breakdowns are explicitly numbered (`#1`/`#2`/...).
+  breakdowns are explicitly numbered (`#1`/`#2`/...). Beside it, a "Focus next" callout
+  (`getFocusArea()`) names the lowest section, whether it's a recurring pattern across your last 5
+  sessions, and the latest real grading fix for it, linked back to that session; the Delivery
+  section lists the specific filler/hedge words you've used most lately (`getRecentWordHabits()`).
+  Both are deterministic over existing feedback — no extra LLM call. Metric tiles carry the same
+  hover/tap definitions as the feedback page (`lib/metricDefinitions.ts`).
 - **Goals** (also on `/app/insights`, via `app/components/ObjectiveForm.tsx`) — an optional, freely
   addable `Objective` (`lib/types.ts`, `lib/objectives.ts`) tracked against your *entire* session
   history, not one session, with a free-text note and **zero or more independent numeric targets**

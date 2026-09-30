@@ -1491,3 +1491,76 @@ Found in a full read of the code and docs, none of it previously recorded in `re
 (deleted after): `GET`/`DELETE /api/sessions/..%2F..%2Fpackage` → 404 / no-op, `package.json`
 untouched; a 50k-char doc with kind `"evil"` plus a blank doc → stored as one 20k-char `other`; pause
 at 3 turns → one more exchange → End graded all 5 turns, and a repeat End returned the cached result.
+
+---
+
+## 43. Mobile fixes, UX gaps from the review, and making Insights actionable
+
+`review.md` item 1 (mobile) plus the smaller UX findings around it, and a pass on whether Insights
+actually tells someone how to improve. Checked at a real 375px viewport (Chrome DevTools-protocol
+device emulation — plain `--headless --window-size` enforces a ~500px minimum and crops, which looks
+exactly like horizontal overflow but isn't).
+
+**Mobile**
+- **History on phones.** The sidebar is `hidden … sm:flex`, so phones had no route back to past or
+  in-progress sessions. The list moved into `HistoryList`; the desktop `<aside>` renders it, and below
+  `sm` a header "History" button opens it in a drawer (Escape/backdrop/navigation close it). The
+  row's discard "×" was `opacity-0` until hover — an invisible tap target on touch — so it's now only
+  hover-revealed at `sm` and up.
+- **Session action bar.** Input + Send stay on one row; Pause/End get their own row beneath, sharing
+  it with a status line.
+- **Tooltips on touch.** `Metric` opens on tap too (tapping a span doesn't reliably focus it on iOS),
+  closes on an outside tap or scroll, and links its text via `aria-describedby` (an always-present
+  `sr-only` copy, since the visible box only exists while open).
+- **LAN over plain HTTP.** `crypto.randomUUID()` throws outside secure contexts — which is exactly how
+  a phone reaches a dev machine (`http://<ip>:3000`). `DocSlot` falls back to a non-crypto id; the
+  server re-validates refs anyway (§42).
+- **Voices on Android.** Its voices are named by locale, so the curated list matched nothing; the
+  picker then fell back to the *raw* list while `speak()` only accepted curated voices — anything
+  picked was silently ignored. Both now use `selectableVoices()`: curated, else ≤6 English voices
+  (still a short list, per §39). `isCuratedVoice` also matches on word boundaries now.
+- Tighter page padding below `sm` across feedback, insights, goals, logs, and the session page.
+
+**Speech bugs found along the way**
+- **Denied mic looped forever.** `onerror` ignored everything and `onend` always restarted, so a
+  `not-allowed` error restarted, failed, restarted... with no message. Fatal errors
+  (`not-allowed`/`service-not-allowed`/`audio-capture`) now stop recognition, keep anything already
+  heard (it goes to the review box), and show how to fix it.
+- **iOS auto-play could hang the session.** Speech not started by a tap is dropped on iOS with neither
+  `onstart` nor `onend`, leaving "Speaking…" and a disabled mic. `speak()` now gives up if playback
+  hasn't started within 4s and resolves `false`; the page then shows "▶ Tap to hear" on the latest AI
+  line (a real tap, so it plays). Otherwise it's a "Replay" button.
+- **Voice preview left the mic disabled.** `speak()` sets state to `speaking` and leaves it for the
+  caller; the turn loop moves on by listening, but the picker's preview never reset it — so every
+  preview left a stale "Speaking…" and a dead mic. Standalone playback now hands back to `idle`.
+
+**UX**
+- "N exchanges left" → "Last exchange — the session wraps up after this answer" for the multi-turn
+  modes, instead of auto-ending without warning. A hint explains why Pause/End are disabled while
+  listening.
+- Feedback page leads with the overall score and a "Work on next" section; each `ScoreBar` shows
+  `n/5` next to the bar, not just color.
+
+**Insights: from "how am I doing" to "what do I do next".** It already had a strength callout with a
+one-line "biggest room to grow", but nothing to act on. Added, all deterministic over existing
+feedback (no new LLM call, per §37):
+- **Focus next** (`getFocusArea()`, `FocusCallout`) — the lowest section, its trend, how many of the
+  last 5 sessions it was the lowest in (flagged as a pattern at ≥60% of ≥3), and the most recent
+  real grading fix for it with a link to that session's feedback. Replaces the strength card's
+  growth line when shown.
+- **Words to cut first** (`getRecentWordHabits()`) — the specific filler/hedge words summed over the
+  last 5 sessions, since a percentage isn't something you can act on.
+- The Delivery/Conversation tiles now carry the same research-backed definitions as the feedback
+  page, moved to `lib/metricDefinitions.ts` so both stay in sync.
+
+**Verification**: `tsc --noEmit` and `eslint` clean. At 375px against real data: header fits with
+History/Insights/New session; drawer lists sessions with visible discard; session page shows the
+two-row controls, exchange counter, replay button, and — headless Chrome has no mic or audio — the
+new mic-error and blocked-audio messages appeared instead of the old silent loop/hang; feedback page
+shows `2.2 / 5 overall · Work on next: Structure` and `n/5` per section; Insights shows Focus next
+(Argumentation, 2.0/5, lowest in 3 of last 5, with its latest fix) and "just ×10, like ×9, kind of
+×7". Not verifiable here, flagged for a real device: actual iOS/Android speech playback and mic
+permission prompts.
+
+**Still open from `review.md`**: streaming replies (item 4), the contrast/micro-text pass (item 6),
+unit tests (item 7), `listAllFeedback` caching (item 8).
