@@ -270,6 +270,7 @@ Mostly known and covered by `saas-plan.md`:
   `sanitizeDocumentRefs()` in `lib/documents.ts` applies the same 20k cap plus a
   10-doc limit. See `plan.md` §42.)_ But there's **no rate limiting** on the
   LLM-backed routes; a loop hitting `POST /api/sessions` burns provider quota
-  with no ceiling.
+  with no ceiling. _(Done — per-user limits on every LLM route, default 20/min
+  and 300/day, `lib/rateLimit.ts`, `plan.md` §47.)_
 - Passing `user: sessionId` to providers for abuse tracing (`llm.ts:133`) is
   good practice — keep it.

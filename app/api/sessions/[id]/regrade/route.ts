@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiUserId, unauthorizedResponse } from "@/lib/auth";
+import { consumeLlmQuota, rateLimitedResponse } from "@/lib/rateLimit";
 import { getFeedback, getSession, saveFeedback } from "@/lib/store";
 import { gradeSession } from "@/lib/grading";
 
@@ -41,6 +42,8 @@ export async function POST(
     return NextResponse.json({ feedback: existing });
   }
 
+  const quota = await consumeLlmQuota(userId);
+  if (!quota.ok) return rateLimitedResponse(quota);
   const feedback = await gradeSession(session);
   await saveFeedback(userId, feedback);
   return NextResponse.json({ feedback });

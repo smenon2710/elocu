@@ -269,7 +269,8 @@ live is creating the Neon database, running the migration + import against it, a
 ### 7.3 Protect the deploy
 ~~There is no auth yet~~ — **Phase 1 sign-in is built (2026-09-30, `plan.md` §45):** every page and
 API route needs a Clerk sign-in, and every query is scoped to the user (§2.3 done). What's still
-open: anyone can *sign up* and spend LLM budget, and there's no per-user rate limit (`review.md` §6).
+open: anyone can *sign up* and spend LLM budget, and there's no per-user rate limit (`review.md` §6)
+— **rate limits done too (`plan.md` §47).**
 For a private beta, restrict sign-ups in the Clerk dashboard (allowlist or invitation-only) rather
 than relying on Deployment Protection. **Done — Access mode is Restricted (invite-only).** Public =
 rate limits + Phase 3.
@@ -360,7 +361,8 @@ all named after it.
 Phase 0 (`plan.md` §44), Phase 1 sign-in (`plan.md` §45), and the private-beta deploy (`plan.md`
 §46) are done. Next, roughly in order:
 1. **Invite beta users** and run §9.1's free beta — the real-usage data billing decisions need.
-2. **Per-user rate limiting on the LLM routes** before anything public (`review.md` §6).
+2. ~~**Per-user rate limiting on the LLM routes**~~ — **done** (`plan.md` §47): 20/min and 300/day
+   per user by default. Revisit the numbers with real beta usage (§9.1 item 1).
 3. **A custom domain** — needed for Clerk production keys (drops the "Development mode" badge and
    the dev instance's limits) and settles the naming question in §9.2.
 4. Target-user and B2B answers, then Phase 2 (billing).

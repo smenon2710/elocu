@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiUserId, unauthorizedResponse } from "@/lib/auth";
+import { consumeLlmQuota, rateLimitedResponse } from "@/lib/rateLimit";
 import { getFeedback, getSession, saveFeedback } from "@/lib/store";
 import { emptyTranscriptFeedback, gradeSession } from "@/lib/grading";
 
@@ -46,6 +47,10 @@ export async function POST(
   }
 
   const hasUserTurns = session.turns.some((t) => t.speaker === "user");
+  if (hasUserTurns) {
+    const quota = await consumeLlmQuota(userId);
+    if (!quota.ok) return rateLimitedResponse(quota);
+  }
   const feedback = hasUserTurns ? await gradeSession(session) : emptyTranscriptFeedback(session);
   await saveFeedback(userId, feedback);
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiUserId, unauthorizedResponse } from "@/lib/auth";
+import { consumeLlmQuota, rateLimitedResponse } from "@/lib/rateLimit";
 import { getSession, saveSession } from "@/lib/store";
 import { getNextInterviewerMessage, shouldAutoEnd } from "@/lib/conversation";
 
@@ -33,6 +34,9 @@ export async function POST(
   if (!lastTurn || lastTurn.speaker !== "user") {
     return NextResponse.json({ session, error: null, shouldAutoEnd: shouldAutoEnd(session) });
   }
+
+  const quota = await consumeLlmQuota(userId);
+  if (!quota.ok) return rateLimitedResponse(quota);
 
   let replyError: string | null = null;
   try {

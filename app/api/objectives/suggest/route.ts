@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiUserId, unauthorizedResponse } from "@/lib/auth";
+import { consumeLlmQuota, rateLimitedResponse } from "@/lib/rateLimit";
 import { parseObjectiveTarget } from "@/lib/objectives";
 import { suggestObjectiveTargets } from "@/lib/objectiveSuggestion";
 import type { ObjectiveTarget } from "@/lib/types";
@@ -17,7 +18,8 @@ export const maxDuration = 120;
 export async function POST(req: NextRequest) {
   // No user data is read here, but it's an LLM call — signed-in only, so the
   // provider budget can't be spent by anyone who finds the endpoint.
-  if (!(await getApiUserId())) return unauthorizedResponse();
+  const userId = await getApiUserId();
+  if (!userId) return unauthorizedResponse();
   const body = await req.json().catch(() => null);
   const title = typeof body?.title === "string" ? body.title.trim() : "";
   if (!title) {
@@ -28,6 +30,8 @@ export async function POST(req: NextRequest) {
   const rawExisting: unknown[] = Array.isArray(body?.existingTargets) ? body.existingTargets : [];
   const existingTargets: ObjectiveTarget[] = rawExisting.map(parseObjectiveTarget).filter((t): t is ObjectiveTarget => t !== null);
 
+  const quota = await consumeLlmQuota(userId);
+  if (!quota.ok) return rateLimitedResponse(quota);
   const suggestions = await suggestObjectiveTargets(title, note, existingTargets);
   return NextResponse.json({ suggestions });
 }
