@@ -6,11 +6,20 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:import-local": "tsx scripts/import-local-data.ts",
+    "db:claim-local": "tsx scripts/claim-local-data.ts"
   },
   "dependencies": {
+    "@clerk/backend": "^3.21.0",
+    "@clerk/nextjs": "^7.9.8",
+    "@vercel/functions": "^3.9.9",
+    "drizzle-orm": "^0.45.3",
     "next": "16.3.0",
     "pdf-parse": "^2.4.5",
+    "pg": "^8.23.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
@@ -18,11 +27,14 @@
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/pdf-parse": "^1.1.5",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "drizzle-kit": "^0.31.11",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }

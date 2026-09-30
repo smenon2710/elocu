@@ -37,7 +37,7 @@ opening its URL in the phone's browser.
 5. Retry-grading button on ended sessions; confirm-on-discard. — **done 2026-08-27**
 6. Contrast / micro-text pass; tooltip association + touch support.
 7. Unit tests around the metric / parsing / trend functions.
-8. `listAllFeedback` caching before session count makes it matter.
+8. `listAllFeedback` caching before session count makes it matter. — **done 2026-09-30** (Postgres, `plan.md` §44)
 
 > **Batch 1 (2026-08-27)** — items 2 and 5 above, plus the stale error strings.
 > See `plan.md` §40.
@@ -113,7 +113,9 @@ opening its URL in the phone's browser.
   the first mic tap; keep the AI text prominent (it already is).
 - **No transcript export / copy.** Users rehearsing a real speech will want what
   they said. A copy/download button on the feedback or session page is cheap.
-- **`extractText` mangles non-PDF/non-text files.** `documents.ts:16` does
+- **`extractText` mangles non-PDF/non-text files.** _(done — binary files are
+  rejected with a clear message; found for real during the Postgres import,
+  where a stored .docx's NUL bytes can't be saved at all. `plan.md` §44.)_ `documents.ts:16` does
   `buffer.toString("utf-8")` for anything not a PDF — a `.docx` resume (common)
   becomes binary garbage fed to the model. Picker is `accept=".txt,.pdf"`
   (`DocSlot.tsx:89`) but paste/drag/rename bypasses it. Reject unknown types
@@ -207,7 +209,7 @@ as templated. Refinements:
 
 ## 4. Performance & architecture
 
-- **`listAllFeedback()` re-reads every session + feedback file on every call**
+- _(done — now one indexed join on Postgres, `plan.md` §44.)_ **`listAllFeedback()` re-reads every session + feedback file on every call**
   (`store.ts:163`) and is called by the insights page, the feedback page (via
   `getPreviousAttemptForGoal` → `listAttemptsForGoal`), and the goal page.
   O(n) disk reads per page view. Add an in-memory cache with mtime
@@ -222,7 +224,8 @@ as templated. Refinements:
 - **The grading prompt has no transcript token cap** — a maxed-out interview
   could exceed context on the smaller fallback models, causing the parse
   failures the fallback chain exists to catch.
-- **`data/logs/*.jsonl` grow forever;** `getSessionCallLogs` /
+- _(partly done — logs are Postgres tables indexed by session id, so reads no
+  longer scan files; retention is still open.)_ **`data/logs/*.jsonl` grow forever;** `getSessionCallLogs` /
   `getSessionParseFailures` scan all daily log files line-by-line for one session
   id (`llm.ts:251`). Add rotation / retention.
 
@@ -258,10 +261,9 @@ Mostly known and covered by `saas-plan.md`:
 
 - Every API route is unauthenticated and keyed only on a UUID in the URL — any
   caller can `GET` / `DELETE` any session or `PATCH` any objective. Fine for a
-  single-user local tool; blocking for anything shared. _(Partly addressed —
-  `lib/store.ts` now rejects any id that isn't a UUID before it reaches a file
-  path, closing `../`-style traversal. Access control itself is still
-  `saas-plan.md` Phase 1.)_
+  single-user local tool; blocking for anything shared. _(Done — Clerk sign-in
+  on every page and API route, and every query scoped to the signed-in user;
+  another user's id reads as 404. `plan.md` §44–45.)_
 - File size (5MB) and text (20k chars) caps are enforced (`api/documents/route.ts`)
   — good. _(Now also enforced at session creation — pasted text is built
   client-side and never went through the upload route, so it was uncapped;

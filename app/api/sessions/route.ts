@@ -1,24 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getApiUserId, unauthorizedResponse } from "@/lib/auth";
 import { randomUUID } from "crypto";
 import { listSessions, saveSession } from "@/lib/store";
 import { getNextInterviewerMessage } from "@/lib/conversation";
 import { sanitizeDocumentRefs } from "@/lib/documents";
 import {
   DEFAULT_PITCH_TIME_LIMIT_SEC,
-  LOCAL_USER_ID,
   PITCH_TIME_LIMITS_SEC,
   type Session,
   type SessionMode,
 } from "@/lib/types";
 
+// LLM-backed: a Groq timeout falling back to OpenRouter can take ~90s (two
+// 45s ceilings, lib/llm.ts) — set explicitly rather than relying on the
+// host's default function timeout, which varies by platform and plan.
+export const maxDuration = 120;
+
 const VALID_MODES: SessionMode[] = ["interview", "conversation", "speech", "orator", "debate", "pitch"];
 
 export async function GET() {
-  const sessions = await listSessions();
+  const userId = await getApiUserId();
+  if (!userId) return unauthorizedResponse();
+  const sessions = await listSessions(userId);
   return NextResponse.json({ sessions });
 }
 
 export async function POST(req: NextRequest) {
+  const userId = await getApiUserId();
+  if (!userId) return unauthorizedResponse();
   const body = await req.json().catch(() => null);
   const mode: SessionMode = VALID_MODES.includes(body?.mode) ? body.mode : "conversation";
   const topic = typeof body?.topic === "string" ? body.topic.trim() : "";
@@ -44,7 +53,7 @@ export async function POST(req: NextRequest) {
 
   const session: Session = {
     id: randomUUID(),
-    userId: LOCAL_USER_ID,
+    userId,
     createdAt: Date.now(),
     endedAt: null,
     mode,

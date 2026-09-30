@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getApiUserId, unauthorizedResponse } from "@/lib/auth";
 import { parseObjectiveTarget } from "@/lib/objectives";
 import { deleteObjective, getObjective, saveObjective } from "@/lib/store";
 
@@ -13,7 +14,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const objective = await getObjective(id);
+  const userId = await getApiUserId();
+  if (!userId) return unauthorizedResponse();
+  const objective = await getObjective(userId, id);
   if (!objective) {
     return NextResponse.json({ error: "objective not found" }, { status: 404 });
   }
@@ -38,6 +41,8 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  await deleteObjective(id);
+  const userId = await getApiUserId();
+  if (!userId) return unauthorizedResponse();
+  await deleteObjective(userId, id);
   return NextResponse.json({ ok: true });
 }

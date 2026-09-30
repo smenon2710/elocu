@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getCurrentUserId } from "@/lib/auth";
 import {
   computeConversationDynamicsStats,
   computeDeliveryMetricStats,
@@ -97,7 +98,8 @@ function TabLink({ href, active, children }: { href: string; active: boolean; ch
 
 export default async function InsightsPage({ searchParams }: { searchParams: Promise<{ mode?: string }> }) {
   const { mode: modeParam } = await searchParams;
-  const [allRows, objectives] = await Promise.all([listAllFeedback(), listObjectives()]);
+  const userId = await getCurrentUserId();
+  const [allRows, objectives] = await Promise.all([listAllFeedback(userId), listObjectives(userId)]);
   const availableModes = distinctModes(allRows);
   const selectedMode: SessionMode | null =
     modeParam && VALID_MODES.includes(modeParam as SessionMode) && availableModes.includes(modeParam as SessionMode)

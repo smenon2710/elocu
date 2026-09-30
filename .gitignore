@@ -37,6 +37,9 @@ yarn-error.log*
 # local session/document data
 /data/
 
+# Clerk keyless-mode temporary keys (development only)
+/.clerk/
+
 # vercel
 .vercel
 

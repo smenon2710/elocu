@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getApiUserId, unauthorizedResponse } from "@/lib/auth";
 import { randomUUID } from "crypto";
 import { parseObjectiveTarget } from "@/lib/objectives";
 import { listObjectives, saveObjective } from "@/lib/store";
-import { LOCAL_USER_ID, type Objective, type ObjectiveTarget } from "@/lib/types";
+import type { Objective, ObjectiveTarget } from "@/lib/types";
 
 export async function GET() {
-  const objectives = await listObjectives();
+  const userId = await getApiUserId();
+  if (!userId) return unauthorizedResponse();
+  const objectives = await listObjectives(userId);
   return NextResponse.json({ objectives });
 }
 
 export async function POST(req: NextRequest) {
+  const userId = await getApiUserId();
+  if (!userId) return unauthorizedResponse();
   const body = await req.json().catch(() => null);
   const title = typeof body?.title === "string" ? body.title.trim().slice(0, 100) : "";
   if (!title) {
@@ -27,7 +32,7 @@ export async function POST(req: NextRequest) {
 
   const objective: Objective = {
     id: randomUUID(),
-    userId: LOCAL_USER_ID,
+    userId,
     createdAt: Date.now(),
     title,
     note,

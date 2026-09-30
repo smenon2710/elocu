@@ -230,7 +230,10 @@ message being posted. Not worth doing. **Phase 0 (Postgres) is a hard prerequisi
 deploy, not an optimization.**
 
 ### 7.2 Minimum to make a Vercel deploy work
-This is Phase 0 scoped down to exactly what Vercel forces:
+This is Phase 0 scoped down to exactly what Vercel forces. **Items 1–3, 5 and 7 are done
+(2026-09-30, `plan.md` §44)** — storage is on Postgres with every query user-scoped, logs are
+tables, LLM routes set `maxDuration`, and the local data has an import script. What's left to go
+live is creating the Neon database, running the migration + import against it, and item 4.
 
 1. **Postgres** — Vercel Postgres or Neon (both Neon-backed, both have a free tier). Use the
    **pooled** connection string; serverless opens a connection per invocation. `DATABASE_URL` goes
@@ -248,21 +251,23 @@ This is Phase 0 scoped down to exactly what Vercel forces:
 4. **Env vars** — copy `.env.local` (gitignored, won't ship) into Vercel project settings:
    `GROQ_API_KEY`, `OPENROUTER_API_KEY`, any model overrides, `DATABASE_URL`.
 5. **Function duration** — grading (`/end`, `/pause`) is a full LLM round trip with a 45s ceiling in
-   `lib/llm.ts`, and the fallback chain stacks. Vercel **Hobby caps function execution at 10s** —
-   that kills grading. Add `export const maxDuration = 60` to the LLM-backed route segments; a
-   Groq→OpenRouter retry can still exceed 60s, so **Vercel Pro (~$20/mo) is realistically required**.
+   `lib/llm.ts`, and the fallback chain stacks (~90s worst case). ~~Hobby caps execution at 10s, so
+   Pro is required~~ — **corrected 2026-09-30:** with Fluid compute (on by default for new projects)
+   Vercel's docs put Hobby's maximum at 300s, so Hobby is enough for a demo. The LLM routes now set
+   `maxDuration = 120` explicitly. Pro is still needed once it's commercial — Hobby is for personal,
+   non-commercial use.
 6. **The Ollama tier is dead on Vercel** — `localhost:11434` is unreachable (already flagged §3.4).
    A Groq + OpenRouter double failure becomes a hard user-facing error with no third fallback.
    Acceptable for a demo; revisit for public per §3.4.
 7. **Existing data** — decide import-vs-clean (§2.4): 14 real sessions (each with a feedback file) + 1 objective
    sit on disk under `LOCAL_USER_ID` today.
 
-### 7.3 Protect the deploy — there is no auth yet
-Turn on **Vercel Deployment Protection** (password or Vercel-account gate). Until Phase 1 this is the
-*only* thing between the app's Groq/OpenRouter API keys and anyone who finds the URL — there is no
-rate limiting (`review.md` §6), and `getSession(id)` still returns any session to any caller with the
-id (§2.3). With protection on, the Vercel deploy is a genuinely private demo. Public = Phase 1 + Phase
-3, not this.
+### 7.3 Protect the deploy
+~~There is no auth yet~~ — **Phase 1 sign-in is built (2026-09-30, `plan.md` §45):** every page and
+API route needs a Clerk sign-in, and every query is scoped to the user (§2.3 done). What's still
+open: anyone can *sign up* and spend LLM budget, and there's no per-user rate limit (`review.md` §6).
+For a private beta, restrict sign-ups in the Clerk dashboard (allowlist or invitation-only) rather
+than relying on Deployment Protection. Public = rate limits + Phase 3.
 
 ### 7.4 Smaller Vercel notes
 - Set the Vercel function **region** near the Postgres region — grading latency is user-facing.
@@ -341,11 +346,14 @@ all named after it.
 - **Timeline / context** — a launch date, demo day, class, or accelerator this is tied to?
 - **Infra budget** — Vercel Pro (~$20/mo) + auth provider + Postgres + carrying LLM cost through a
   free beta; solo-bootstrapped or funded?
-- **Auth provider** (§6 item 1) — Clerk / Supabase Auth / Auth.js. Drives the Postgres host choice:
-  Supabase Auth → Supabase Postgres (do them together); Clerk / Auth.js → Neon or Vercel Postgres.
-- **ORM** — Drizzle or Prisma. Default to Drizzle for a project this size absent a preference.
-- **Existing 14 sessions** — import under a seed account or start clean (§2.4).
+- ~~**Auth provider**~~ — **decided 2026-09-30: Clerk + Neon.**
+- ~~**ORM**~~ — **Drizzle** (Phase 0, `plan.md` §44).
+- ~~**Existing sessions**~~ — **import** (`npm run db:import-local`); they land under `local-user` and
+  get reassigned to the owner's Clerk account when sign-in lands.
 
 ### 9.4 Next step when work resumes
-Answer **target-user, B2B-angle, and auth-provider first** — they change what Phase 0 builds.
-Everything else can be decided as Phase 0 lands.
+Phase 0 (`plan.md` §44) and Phase 1 sign-in (`plan.md` §45) are built. To go live: create the Clerk
+production instance + Neon database, set `DATABASE_URL` and the Clerk keys in Vercel, run
+`db:migrate` → `db:import-local` → `db:claim-local` against Neon, and restrict sign-ups for the
+private beta. Before public: per-user rate limiting on the LLM routes. Target-user and B2B still need
+answers before Phase 2 (billing).

@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getApiUserId, unauthorizedResponse } from "@/lib/auth";
 import { getFeedback, getSession, saveFeedback } from "@/lib/store";
 import { gradeSession } from "@/lib/grading";
+
+// LLM-backed: a Groq timeout falling back to OpenRouter can take ~90s (two
+// 45s ceilings, lib/llm.ts) — set explicitly rather than relying on the
+// host's default function timeout, which varies by platform and plan.
+export const maxDuration = 120;
 
 /**
  * Re-runs the grading LLM call for a session whose last grading pass failed
@@ -18,12 +24,14 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const session = await getSession(id);
+  const userId = await getApiUserId();
+  if (!userId) return unauthorizedResponse();
+  const session = await getSession(userId, id);
   if (!session) {
     return NextResponse.json({ error: "session not found" }, { status: 404 });
   }
 
-  const existing = await getFeedback(id);
+  const existing = await getFeedback(userId, id);
   // Only retry a real failure — never regrade a session that was never graded,
   // one whose last pass succeeded, or an empty transcript (nothing to grade).
   if (!existing || !existing.gradingFailed) {
@@ -34,6 +42,6 @@ export async function POST(
   }
 
   const feedback = await gradeSession(session);
-  await saveFeedback(feedback);
+  await saveFeedback(userId, feedback);
   return NextResponse.json({ feedback });
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { UserButton } from "@clerk/nextjs";
 import { HistoryList } from "@/app/components/HistorySidebar";
 
 const NAV_LINKS = [
@@ -93,6 +94,9 @@ export function Header() {
             </Link>
           );
         })}
+        {/* Account menu (profile, sign out). Everything under the app shell is
+            signed-in only (proxy.ts), so there's no signed-out state to handle here. */}
+        <UserButton />
       </nav>
       {historyOpen && <HistoryDrawer onClose={closeHistory} />}
     </header>

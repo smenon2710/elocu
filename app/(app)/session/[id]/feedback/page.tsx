@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getCurrentUserId } from "@/lib/auth";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { Metric } from "@/app/components/Metric";
@@ -169,7 +170,8 @@ function ScoreDelta({ diff }: { diff: number }) {
 
 export default async function FeedbackPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [session, feedback] = await Promise.all([getSession(id), getFeedback(id)]);
+  const userId = await getCurrentUserId();
+  const [session, feedback] = await Promise.all([getSession(userId, id), getFeedback(userId, id)]);
 
   if (!session) notFound();
 
@@ -197,7 +199,7 @@ export default async function FeedbackPage({ params }: { params: Promise<{ id: s
 
   const previousAttempt =
     session.goalLabel && valid
-      ? await getPreviousAttemptForGoal(session.goalLabel, session.id, session.createdAt)
+      ? await getPreviousAttemptForGoal(userId, session.goalLabel, session.id, session.createdAt)
       : null;
 
   const sectionAverage = (sections: FeedbackSections) => {
