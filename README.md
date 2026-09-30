@@ -160,14 +160,25 @@ npm run lint
 Live at **https://elocu-six.vercel.app** — a private beta: Clerk's Access mode is **invite-only**,
 so new people join only by invitation.
 
-**Inviting a tester.** Clerk dashboard → Users → Invite works, but a dashboard invite carries no
-redirect URL — after accepting, the tester lands wherever the Clerk instance's default home URL
-points, which on a development instance is often `localhost` (a dead end on their machine). So
-either set the instance's home URL to `https://elocu-six.vercel.app` in the Clerk dashboard, or
-create invitations through Clerk's backend API with
-`redirectUrl: "https://elocu-six.vercel.app/sign-up"` — the app's `<SignUp>` picks up the
-invitation ticket itself. **Resending** = revoke the pending invitation and create a new one (Clerk
-has no resend call); the old email's link stops working, so tell the tester to use the newest one.
+**Inviting a tester** — use the script:
+
+```bash
+npm run beta:invite -- someone@example.com            # send an invitation
+npm run beta:invite -- someone@example.com --resend   # revoke the pending one and send a fresh one
+```
+
+It creates the invitation through Clerk's API with its redirect set to the live app's `/sign-up`,
+where the app's own `<SignUp>` consumes the invitation — something the Clerk dashboard can't do
+(dashboard invites carry no redirect and go through Clerk's hosted sign-up page). It won't invite an
+address that already has an account, and won't double-invite without `--resend`; Clerk has no
+resend call, so `--resend` revokes the pending invitation (its link stops working — the tester must
+use the newest email) and issues a new one. `ELOCU_APP_URL` overrides the live URL.
+
+Dashboard invites (Users → Invite) still work: the Clerk instance's development origin is set to
+`https://elocu-six.vercel.app` (via the backend API — `PATCH /v1/instance`, `development_origin`;
+the dashboard doesn't expose it), so after signing up on Clerk's hosted page the tester is sent to
+the live site. It was empty before, which left hosted-page sign-ups with nowhere to return to. If
+the site moves to a new URL, update it the same way.
 
 | Piece | Where |
 |---|---|

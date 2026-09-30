@@ -1822,3 +1822,29 @@ listed.
 Recorded in README "Deployment": prefer API-created invites with that redirect, or set the Clerk
 instance's home URL to the live site so dashboard invites land correctly too. Next check: re-run the
 beta report — an accepted invitation plus a new account row confirms the flow end to end.
+
+---
+
+## 51. Invite redirects, properly: development origin + `beta:invite`
+
+§50 suggested setting a Clerk "home URL" so dashboard invites land on the live site. That was wrong
+on two counts, found when the owner couldn't find the setting:
+- Clerk's docs: an invitation created in the **dashboard can't have a redirect URL** at all — the
+  invitee goes to Clerk's hosted Account Portal sign-up page. Only API-created invitations take a
+  `redirectUrl`.
+- Where the hosted page sends people afterwards, on a development instance, comes from the
+  instance's **development origin** — not exposed in the dashboard, but settable through the backend
+  API. Reading it back (`GET /v1/domains`) showed it **empty**: hosted-page sign-ups had nowhere to
+  return to.
+
+Fixed both ways:
+- `PATCH /v1/instance` with `development_origin: "https://elocu-six.vercel.app"` (204; read back as
+  set). No effect on local development — the app uses its own `/sign-in`/`/sign-up`, not the hosted
+  pages. Needs redoing if the site moves (e.g. to a custom domain).
+- `npm run beta:invite -- <email> [--resend]` (`scripts/beta-invite.ts`) — API-created invitations
+  with `redirectUrl` = the live `/sign-up`, so invitees use the app's own sign-up. Refuses to invite
+  an existing account, won't double-invite without `--resend`, and `--resend` does the revoke +
+  reissue Clerk requires. Tested on the no-send paths only (usage error, pending invite, existing
+  account) so the tester wasn't emailed again.
+
+README "Deployment" rewritten accordingly; §50's "home URL" advice is superseded by this section.
