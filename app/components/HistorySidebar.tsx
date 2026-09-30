@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import type { SessionMode } from "@/lib/types";
 
@@ -44,6 +44,7 @@ function relativeTime(ts: number): string {
  */
 export function HistoryList({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
   // Discard is permanent (session file + feedback file, no undo — see
   // lib/store.ts's deleteSession), so the "×" arms an inline confirm rather
@@ -65,6 +66,15 @@ export function HistoryList({ onNavigate }: { onNavigate?: () => void }) {
     setConfirmingId(null);
     setSessions((prev) => (prev ?? []).filter((s) => s.id !== id));
     await fetch(`/api/sessions/${id}`, { method: "DELETE" }).catch(() => {});
+    // Server pages (Insights, goal pages) compute from the database on each
+    // render, but one that's already on screen keeps its numbers until it's
+    // re-rendered — so refresh it now. If the page *is* the deleted session,
+    // leave it rather than showing a 404.
+    if (pathname.includes(id)) {
+      router.push("/app");
+    } else {
+      router.refresh();
+    }
   }
 
   if (sessions === null) {
@@ -160,8 +170,8 @@ export function HistorySidebar() {
       aria-label="Session history"
       className="hidden w-64 shrink-0 flex-col border-r border-hairline bg-ink-900 p-4 sm:flex"
     >
-      <p className="mb-3 font-mono text-[11px] tracking-[0.2em] text-verdigris-400 uppercase">History</p>
-      <div className="flex-1 overflow-y-auto">
+      <p className="mb-2 font-mono text-[11px] tracking-[0.2em] text-verdigris-400 uppercase">History</p>
+      <div className="scroll-quiet scroll-fade -mr-3 flex-1 overflow-y-auto pt-2 pr-1 pb-8">
         <HistoryList />
       </div>
     </aside>

@@ -51,7 +51,7 @@ function HistoryDrawer({ onClose }: { onClose: () => void }) {
             ×
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div className="scroll-quiet scroll-fade -mr-3 flex-1 overflow-y-auto pt-2 pr-1 pb-8">
           <HistoryList onNavigate={onClose} />
         </div>
       </div>
