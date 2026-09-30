@@ -362,6 +362,8 @@ all named after it.
 Phase 0 (`plan.md` §44), Phase 1 sign-in (`plan.md` §45), and the private-beta deploy (`plan.md`
 §46) are done. Next, roughly in order:
 1. **Invite beta users** and run §9.1's free beta — the real-usage data billing decisions need.
+   *(Started 2026-09-30: first tester invited, still pending — `npm run beta:report -- --prod` tracks
+   who's joined and their usage; `plan.md` §50.)*
 2. ~~**Per-user rate limiting on the LLM routes**~~ — **done** (`plan.md` §47): 20/min and 300/day
    per user by default. Revisit the numbers with real beta usage (§9.1 item 1).
 3. **A custom domain** — needed for Clerk production keys (drops the "Development mode" badge and

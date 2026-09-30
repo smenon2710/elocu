@@ -1799,3 +1799,26 @@ First production run (2026-09-30): 1 pending invitation; the owner's account at 
 all six modes, 2.7 average, 90 AI calls (16 failed), ~112k tokens — **~7,400 tokens/session**, the
 first real number for the pricing questions in §6 of the SaaS plan. Against the local database it
 correctly flagged the 15 still-unclaimed `local-user` sessions.
+
+---
+
+## 50. First beta invitation — and why dashboard invites can dead-end
+
+The first tester was invited from the Clerk dashboard; the beta report (§49) showed it still
+pending hours later. Inspecting the invitation through Clerk's backend API: its accept link carried
+**no redirect URL**, so after accepting, a tester is sent to the Clerk instance's default home URL —
+which on a development instance is typically `localhost`, useless on anyone else's machine. A
+plausible reason the invite stalled, though not confirmed (the tester may simply not have opened it
+yet).
+
+Resent (with the owner's go-ahead) the only way Clerk allows — there's no resend call: revoked the
+pending invitation (its link now fails) and created a new one with `notify: true` and
+`redirectUrl: "https://elocu-six.vercel.app/sign-up"`, where the app's `<SignUp>` consumes the
+invitation ticket. The redirect isn't visible in the returned link (Clerk applies it on accept), and
+the link wasn't clicked to test it — that could have used up the tester's invitation. The beta
+report then showed exactly one pending invitation (sent a minute earlier); revoked ones aren't
+listed.
+
+Recorded in README "Deployment": prefer API-created invites with that redirect, or set the Clerk
+instance's home URL to the live site so dashboard invites land correctly too. Next check: re-run the
+beta report — an accepted invitation plus a new account row confirms the flow end to end.
