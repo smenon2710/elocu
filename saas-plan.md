@@ -328,7 +328,8 @@ fallbacks for both are in `lib/useSpeech.ts`).
 1. **Before Phase 0, compute LLM cost per session** from the existing `data/logs/llm-*.jsonl`
    token-usage data (§1 notes it's already logged per call). It's the direct input to the free-tier
    cap and price point in §6 items 2–3 — picking those numbers without it is a guess. Small analysis,
-   high leverage.
+   high leverage. **Now measured by `npm run beta:report` (`plan.md` §49): ~7,400 tokens/session
+   across the owner's 15 sessions as of 2026-09-30** — re-run as beta users add real usage.
 2. **Insert a private free beta between Phase 1 and Phase 2** — Vercel Deployment Protection, ~10–20
    real users, a few weeks, no billing. It's the only way to get real usage signal (which modes
    matter, real cost per user, willingness to pay) before committing to a pricing structure. §6 items

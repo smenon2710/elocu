@@ -180,6 +180,18 @@ DATABASE_URL="$(grep '^DATABASE_URL_UNPOOLED=' .env.local | cut -d= -f2-)" npm r
 Preview deployments share the production database (the integration set the same variables for
 both), so test destructive changes locally first.
 
+**Beta report.** Clerk holds who's invited and who has an account; the database holds what they
+do. One read-only command joins the two:
+
+```bash
+npm run beta:report -- --prod   # production (uses DATABASE_URL_UNPOOLED); omit --prod for local
+```
+
+It lists invitations (pending/accepted/…), and per account: joined, last active, sessions (and how
+many ended), graded sessions and average score, modes used, AI calls (all-time and last 7 days),
+failed calls, tokens, today's usage against the daily cap, and last session — plus any data under a
+user id Clerk doesn't know (e.g. unclaimed `local-user` imports), and totals with tokens per session.
+
 **First-time setup, for the record:** `vercel link` + `vercel git connect`; Neon via the Vercel
 dashboard (Storage → Neon, accept terms, connect to the project); `vercel env add` for each key;
 `db:migrate` → `db:import-local` → deploy → sign up on the live site → `db:claim-local -- <email>`
