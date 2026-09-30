@@ -4,7 +4,7 @@ import { use, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { VoicePicker } from "@/app/components/VoicePicker";
 import { useSpeech } from "@/lib/useSpeech";
-import type { SessionMode } from "@/lib/types";
+import { MAX_EXCHANGES_BY_MODE, type SessionMode } from "@/lib/types";
 import type { VoiceStyleKey } from "@/lib/voiceCategories";
 
 type Turn = { speaker: "user" | "ai"; text: string };
@@ -46,6 +46,10 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   // re-renders — the actual elapsed time is computed from turnStartRef below,
   // this state just forces a redraw every quarter second.
   const [pitchTick, setPitchTick] = useState(0);
+  // Set when a reply couldn't be played aloud — mobile browsers (iOS Safari
+  // especially) block speech that doesn't start from a tap, which is exactly
+  // what an auto-played reply is. Cleared once anything plays successfully.
+  const [audioBlocked, setAudioBlocked] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const endingRef = useRef(false);
   const pausingRef = useRef(false);
@@ -99,7 +103,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
 
       const lastAiTurn = [...(data.session?.turns ?? [])].reverse().find((t: Turn) => t.speaker === "ai");
       if (lastAiTurn && speech.supported) {
-        await speech.speak(lastAiTurn.text);
+        setAudioBlocked(!(await speech.speak(lastAiTurn.text)));
       }
 
       if (data.shouldAutoEnd) {
@@ -194,7 +198,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       const lastTurn = latestTurns[latestTurns.length - 1];
       if (lastTurn?.speaker === "ai") {
         if (speech.supported) {
-          await speech.speak(lastTurn.text);
+          setAudioBlocked(!(await speech.speak(lastTurn.text)));
         }
         turnStartRef.current = Date.now();
         if (speech.supported && !endingRef.current) speech.startListening();
@@ -225,7 +229,15 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   function previewIfSafe() {
     if (sending || ended || pausing || speech.state === "listening" || speech.state === "thinking") return;
     const lastAiTurn = [...turns].reverse().find((t) => t.speaker === "ai");
-    if (lastAiTurn) speech.speak(lastAiTurn.text);
+    if (!lastAiTurn) return;
+    // speak() leaves state at "speaking" for its caller to move on from — the
+    // turn loop does that by starting to listen, but a standalone playback
+    // has to hand the floor back itself, or the mic stays disabled under a
+    // stale "Speaking…" (this used to happen after every voice preview).
+    speech.speak(lastAiTurn.text).then((played) => {
+      if (played) setAudioBlocked(false);
+      speech.setState((s) => (s === "speaking" ? "idle" : s));
+    });
   }
 
   function handleVoiceChange(uri: string) {
@@ -278,6 +290,15 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
 
   if (loading) return <main className="p-8 font-mono text-sm text-parchment-500">Loading…</main>;
 
+  const maxExchanges = mode ? MAX_EXCHANGES_BY_MODE[mode] : null;
+  const exchangesDone = turns.filter((t) => t.speaker === "user").length;
+  // Multi-turn modes auto-end after their last exchange — say so up front
+  // rather than cutting the conversation off without warning.
+  const exchangesLeft = maxExchanges !== null && maxExchanges > 1 ? maxExchanges - exchangesDone : null;
+  const lastAiIndex = turns.map((t) => t.speaker).lastIndexOf("ai");
+  const canReplay =
+    speech.supported && !sending && !ended && !pausing && speech.state !== "listening" && speech.state !== "thinking";
+
   const showPitchClock =
     mode === "pitch" && pitchTimeLimitSec !== null && turnStartRef.current !== null && !sending && !ended && !pausing;
   const pitchElapsedMs = showPitchClock ? Date.now() - (turnStartRef.current as number) : 0;
@@ -288,18 +309,33 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   void pitchTick;
 
   return (
-    <main className="mx-auto flex h-full max-w-2xl flex-col p-6">
-      <div className="flex-1 overflow-y-auto rounded-2xl border border-hairline bg-ink-800 p-6">
+    <main className="mx-auto flex h-full max-w-2xl flex-col p-3 sm:p-6">
+      <div className="flex-1 overflow-y-auto rounded-2xl border border-hairline bg-ink-800 p-4 sm:p-6">
         <div className="space-y-5" role="log" aria-live="polite" aria-label="Conversation transcript">
           {turns.map((t, i) => (
             <div key={i} className="transcript-line">
-              <span
-                className={`font-mono text-xs tracking-[0.15em] uppercase ${
-                  t.speaker === "user" ? "text-ember-400" : "text-verdigris-400"
-                }`}
-              >
-                {t.speaker === "user" ? "You" : "Elocu"}
-              </span>
+              <div className="flex items-center gap-3">
+                <span
+                  className={`font-mono text-xs tracking-[0.15em] uppercase ${
+                    t.speaker === "user" ? "text-ember-400" : "text-verdigris-400"
+                  }`}
+                >
+                  {t.speaker === "user" ? "You" : "Elocu"}
+                </span>
+                {i === lastAiIndex && speech.supported && (
+                  <button
+                    type="button"
+                    onClick={previewIfSafe}
+                    disabled={!canReplay}
+                    className={`font-mono text-[11px] tracking-wide uppercase transition disabled:opacity-40 ${
+                      audioBlocked ? "text-ember-400 hover:text-ember-300" : "text-parchment-500 hover:text-verdigris-400"
+                    }`}
+                    aria-label="Play this reply aloud"
+                  >
+                    ▶ {audioBlocked ? "Tap to hear" : "Replay"}
+                  </button>
+                )}
+              </div>
               <p className="mt-1 text-sm leading-relaxed text-parchment-100">{t.text}</p>
             </div>
           ))}
@@ -308,6 +344,17 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       </div>
 
       {error && <p className="mt-2 text-sm text-rust-400">{error}</p>}
+      {speech.micError && pending === null && (
+        <p className="mt-2 text-sm text-gold-500" role="alert">
+          {speech.micError}
+        </p>
+      )}
+      {audioBlocked && (
+        <p className="mt-2 text-sm text-parchment-500">
+          Your browser blocked the reply from playing automatically — tap{" "}
+          <span className="text-ember-400">▶ Tap to hear</span> above to play it.
+        </p>
+      )}
 
       <div className="mt-4 flex flex-col gap-3">
         {speech.supported && speech.voices.length > 0 && (
@@ -432,37 +479,57 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
               }}
             >
               <input
-                className="flex-1 rounded-full border border-hairline bg-ink-800 px-4 py-2 text-sm text-parchment-100 placeholder:text-parchment-500/60 focus:border-ember-500"
+                className="min-w-0 flex-1 rounded-full border border-hairline bg-ink-800 px-4 py-2 text-sm text-parchment-100 placeholder:text-parchment-500/60 focus:border-ember-500"
                 value={textInput}
                 onChange={(e) => setTextInput(e.target.value)}
                 placeholder={speech.supported ? "…or type instead" : "Type your response"}
+                aria-label="Type your response"
                 disabled={sending || ended || pausing}
               />
               <button
                 type="submit"
-                className="rounded-full bg-ember-500 px-4 py-2 text-sm font-medium text-ink-950 transition hover:bg-ember-400 disabled:opacity-40"
+                className="shrink-0 rounded-full bg-ember-500 px-4 py-2 text-sm font-medium text-ink-950 transition hover:bg-ember-400 disabled:opacity-40"
                 disabled={sending || ended || pausing || !textInput.trim()}
               >
                 Send
               </button>
-              <button
-                type="button"
-                onClick={pauseSession}
-                title="Get feedback on the conversation so far without ending it — you can resume later"
-                className="rounded-full border border-hairline px-4 py-2 text-sm text-parchment-300 transition hover:border-verdigris-500/60 hover:text-verdigris-400 disabled:opacity-40"
-                disabled={ended || pausing || speech.state === "listening"}
-              >
-                {pausing ? "Pausing…" : "Pause & get feedback"}
-              </button>
-              <button
-                type="button"
-                onClick={endSession}
-                className="rounded-full border border-hairline px-4 py-2 text-sm text-parchment-300 transition hover:border-rust-500/60 hover:text-rust-400 disabled:opacity-40"
-                disabled={ended || pausing || speech.state === "listening"}
-              >
-                End session
-              </button>
             </form>
+
+            {/* Session controls sit on their own row: next to the input they
+                pushed the bar well past a phone's width (four controls, no
+                wrap). */}
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <p className="font-mono text-xs text-parchment-500">
+                {speech.state === "listening" ? (
+                  "Tap the mic when you're done to pause or end"
+                ) : exchangesLeft !== null ? (
+                  exchangesLeft <= 1 ? (
+                    <span className="text-gold-500">Last exchange — the session wraps up after this answer</span>
+                  ) : (
+                    `${exchangesLeft} exchanges left`
+                  )
+                ) : null}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={pauseSession}
+                  title="Get feedback on the conversation so far without ending it — you can resume later"
+                  className="rounded-full border border-hairline px-3 py-1.5 text-sm text-parchment-300 transition hover:border-verdigris-500/60 hover:text-verdigris-400 disabled:opacity-40 sm:px-4"
+                  disabled={ended || pausing || speech.state === "listening"}
+                >
+                  {pausing ? "Pausing…" : "Pause & get feedback"}
+                </button>
+                <button
+                  type="button"
+                  onClick={endSession}
+                  className="rounded-full border border-hairline px-3 py-1.5 text-sm text-parchment-300 transition hover:border-rust-500/60 hover:text-rust-400 disabled:opacity-40 sm:px-4"
+                  disabled={ended || pausing || speech.state === "listening"}
+                >
+                  End session
+                </button>
+              </div>
+            </div>
           </>
         )}
       </div>

@@ -30,7 +30,7 @@ opening its URL in the phone's browser.
 
 ## Priority order
 
-1. Mobile: restore history access + fix the session action-bar layout.
+1. Mobile: restore history access + fix the session action-bar layout. — **done 2026-09-30**
 2. `aria-live` on the live transcript + label the unlabeled `<select>`s. — **done 2026-08-27**
 3. STT review-before-send step (largest single lever on feedback quality). — **done 2026-08-28**
 4. Stream the conversation reply + honest fallback-provider messaging.
@@ -42,6 +42,9 @@ opening its URL in the phone's browser.
 > **Batch 1 (2026-08-27)** — items 2 and 5 above, plus the stale error strings.
 > See `plan.md` §40.
 > **Batch 2 (2026-08-28)** — item 3, STT review-before-send. See `plan.md` §41.
+> **Batch 3 (2026-09-30)** — item 1 (mobile), plus mic-denial, iOS TTS,
+> tooltip touch/association, auto-end warning, feedback headline score. See
+> `plan.md` §43.
 > Individual findings below are annotated _(done)_ where addressed.
 
 ---
@@ -50,14 +53,16 @@ opening its URL in the phone's browser.
 
 ### High impact
 
-- **Mobile has no access to session history.**
+- **Mobile has no access to session history.** _(done — a "History" button in
+  the header, below `sm` only, opens the same list in a slide-over drawer.)_
   `HistorySidebar.tsx:303` is `hidden … sm:flex`; the header
   (`Header.tsx:212`) only has "Insights" and "New session". On a phone there is
   no way to resume an in-progress session or reopen feedback — a core flow
   disappears. Add a header menu / drawer, or a `/app/history` route rendering the
   same list.
 
-- **The session action bar overflows on mobile.**
+- **The session action bar overflows on mobile.** _(done — Pause/End moved to
+  their own row under the input.)_
   `app/(app)/session/[id]/page.tsx:316` — `<form className="flex gap-2">` holds a
   text input plus three buttons ("Send", "Pause & get feedback", "End session")
   with no wrap and no responsive stacking. Unusable below ~500px. Make it
@@ -78,7 +83,8 @@ opening its URL in the phone's browser.
   Token-stream the reply, or at minimum show elapsed time and a "trying backup
   provider" message when the fallback chain engages.
 
-- **Auto-end at 12 exchanges is abrupt.** `conversation.ts:76` ends the session
+- **Auto-end at 12 exchanges is abrupt.** _(done — an "N exchanges left"
+  counter, turning into a "Last exchange" warning.)_ `conversation.ts:76` ends the session
   and navigates to feedback with no warning. Surface "1 exchange left" on the
   penultimate turn.
 
@@ -96,10 +102,13 @@ opening its URL in the phone's browser.
   `HistorySidebar.tsx` — it previously deleted session + feedback on the first
   click with no undo. A soft-delete + undo toast would still be a further
   improvement.
-- **Mic-permission denial is silent.** `recognition.onerror = () => {}`
+- **Mic-permission denial is silent.** _(done — and worse than silent: it
+  restarted the recognizer in an endless loop. Fatal errors now stop it and
+  show a message.)_ `recognition.onerror = () => {}`
   (`useSpeech.ts:146`). Detect `not-allowed` / `service-not-allowed` and show
   "Microphone blocked — enable it in your browser, or type instead."
-- **iOS Safari TTS silently no-ops.** The resume effect calls `speech.speak()`
+- **iOS Safari TTS silently no-ops.** _(done — a start watchdog in `speak()`
+  plus a "▶ Tap to hear" / "Replay" button on the latest AI line.)_ The resume effect calls `speech.speak()`
   with no user gesture (`page.tsx:168`); iOS requires one. Gate auto-speak behind
   the first mic tap; keep the AI text prominent (it already is).
 - **No transcript export / copy.** Users rehearsing a real speech will want what
@@ -112,7 +121,8 @@ opening its URL in the phone's browser.
 - **In-progress sessions never expire.** `data/` grows unbounded; history is
   capped at 50 with no pagination (`store.ts:83`); abandoned "live" sessions sit
   at the top of the list forever.
-- **Pause / End are disabled while listening** (`page.tsx:342,350`) with no hint
+- **Pause / End are disabled while listening** _(done — hint shown while
+  listening)_ (`page.tsx:342,350`) with no hint
   the user must tap the mic off first.
 
 ---
@@ -133,7 +143,7 @@ opening its URL in the phone's browser.
   and `ObjectiveForm.tsx` had no `<label>` or `aria-label` — announced as bare
   "combobox".
 
-- **Tooltips aren't associated and aren't reachable on touch.** `Metric.tsx`
+- **Tooltips aren't associated and aren't reachable on touch.** _(done)_ `Metric.tsx`
   renders `role="tooltip"` but never links it via `aria-describedby`, so screen
   readers get the number with no definition. It's hover/focus-only — no tap
   target on mobile, so the research-backed context (the component's whole point)
@@ -156,7 +166,7 @@ opening its URL in the phone's browser.
   comes for free.
 - **Forced dark theme** (`globals.css:8`, a deliberate choice). Consider
   honoring `prefers-contrast: more` with a higher-contrast token set.
-- **`ScoreBar`** (`feedback/page.tsx:156`) conveys score through color + fill
+- _(done)_ **`ScoreBar`** (`feedback/page.tsx:156`) conveys score through color + fill
   only; the `aria-label` covers SR users, but add a visible "3 / 5" for
   colorblind sighted users.
 - **`transition-*` utilities aren't gated by `prefers-reduced-motion`** — only
@@ -170,7 +180,8 @@ The identity is strong — the ink/parchment/ember system, Fraunces + Plex Mono,
 the transcript-reveal motif carried from landing into the app. It does not read
 as templated. Refinements:
 
-- **The feedback page buries the headline number.** No overall score at the top
+- **The feedback page buries the headline number.** _(done — overall score
+  and a "Work on next" section lead the page.)_ No overall score at the top
   (`feedback/page.tsx:269`) — the user eyeballs 4–6 bars. Lead with a single
   "3.8 / 5" and the goal delta, then the sections.
 - **The active session view is a flat scroll box.** No timestamps, no turn
@@ -226,11 +237,11 @@ as templated. Refinements:
   vs `:108`). Works only because `useSpeech` routes the callback through
   `onFinalRef` and `speech` resolves by call-time. Fragile to refactoring —
   restructure so `speech` is defined first, or document it.
-- **`isCuratedVoice` substring matching is greedy.** `voiceCategories.ts:52`
+- **`isCuratedVoice` substring matching is greedy.** _(done — word boundaries.)_ `voiceCategories.ts:52`
   uses `lower.includes(name)`, so `"alex"` matches "Alexandra" etc. Low stakes
   (gender guess is explicitly best-effort) but a word-boundary check like
   `guessVoiceGender` already uses would be cleaner.
-- **`crypto.randomUUID()` in a client component** (`DocSlot.tsx:23`) throws in
+- **`crypto.randomUUID()` in a client component** _(done — fallback id)_ (`DocSlot.tsx:23`) throws in
   non-secure contexts (plain-HTTP LAN access). `localhost` is fine; a networked
   demo over `http://` is not.
 - **No tests, no CI.** `package.json` has no test runner. The deterministic

@@ -299,13 +299,15 @@ worth it for demand that hasn't been proven on the web first.
 **Interim option:** ship the web **PWA** (manifest + installable, no store listing, no review
 process) — same voice support as TWA, zero billing complications.
 
-**Mobile-web gaps to close first regardless** (all in `review.md` item 1):
-- History sidebar is `hidden … sm:flex` (`HistorySidebar.tsx`) — phones have no way back to past
-  sessions.
-- The 4-control session action bar (`app/(app)/session/[id]/page.tsx`) overflows a narrow viewport.
-- `lib/voiceCategories.ts`'s curated allowlist is desktop macOS/Windows/Chrome voice names, so on
-  Android every voice is filtered out and it falls back to the raw list — add Android (Google TTS)
-  voice names. (Keep the list small per the standing voice-curation preference — see `plan.md` §39.)
+**Mobile-web gaps to close first regardless** — all three done 2026-09-30 (`plan.md` §43):
+- ~~History sidebar is `hidden … sm:flex` — phones have no way back to past sessions.~~ The header
+  now opens the same list in a drawer below `sm`.
+- ~~The 4-control session action bar overflows a narrow viewport.~~ Pause/End moved to their own row.
+- ~~The curated voice allowlist matches nothing on Android.~~ Picker and `speak()` now share
+  `selectableVoices()`: curated voices, else a short English fallback (list kept small per §39).
+
+Still unverified on a real device: iOS/Android speech playback and mic-permission behavior (the new
+fallbacks for both are in `lib/useSpeech.ts`).
 
 ---
 
@@ -320,7 +322,7 @@ process) — same voice support as TWA, zero billing complications.
    real users, a few weeks, no billing. It's the only way to get real usage signal (which modes
    matter, real cost per user, willingness to pay) before committing to a pricing structure. §6 items
    2–3 can't be answered credibly without it.
-3. Streaming (`review.md` item 4) and the mobile-web fixes (§8) should land **before any public
+3. Streaming (`review.md` item 4) — and the mobile-web fixes (§8, now done) — should land **before any public
    launch** — they're conversion-critical — but not before a private beta.
 
 ### 9.2 Cheap and worth doing now

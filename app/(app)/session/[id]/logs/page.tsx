@@ -37,7 +37,7 @@ export default async function SessionLogsPage({ params }: { params: Promise<{ id
   }
 
   return (
-    <main className="mx-auto max-w-3xl p-8">
+    <main className="mx-auto max-w-3xl px-4 py-6 sm:p-8">
       <p className="font-mono text-xs tracking-[0.25em] text-verdigris-400 uppercase">Call log</p>
       <h1 className="mt-2 font-display text-3xl text-parchment-100">{session.topic}</h1>
 
@@ -62,13 +62,13 @@ export default async function SessionLogsPage({ params }: { params: Promise<{ id
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-parchment-100">{c.provider}</span>
                   <span className="text-parchment-500">·</span>
-                  <span className="text-parchment-500">{c.model}</span>
+                  <span className="break-all text-parchment-500">{c.model}</span>
                   <StatusBadge ok={c.ok} />
                 </div>
                 <p className="mt-1 text-xs text-parchment-500/70">
                   {new Date(c.ts).toLocaleString()} · {c.durationMs}ms
                 </p>
-                {c.error && <p className="mt-1 text-xs text-rust-400">{c.error}</p>}
+                {c.error && <p className="mt-1 text-xs break-words text-rust-400">{c.error}</p>}
               </div>
             ))}
           </div>

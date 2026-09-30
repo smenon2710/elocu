@@ -218,7 +218,7 @@ export default function HomePage() {
   }
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-10 sm:py-14">
+    <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-14">
       <p className="font-mono text-xs tracking-[0.25em] text-verdigris-400 uppercase">Choose a room</p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

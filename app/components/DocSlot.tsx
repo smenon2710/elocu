@@ -3,6 +3,17 @@
 import { useState } from "react";
 import type { DocumentKind, DocumentRef } from "@/lib/types";
 
+// crypto.randomUUID() only exists in secure contexts (HTTPS or localhost) —
+// it throws when the app is opened from a phone over the LAN at
+// http://<ip>:3000. This id is only a client-side list key (the server
+// re-validates refs; lib/documents.ts), so a non-crypto fallback is fine.
+function newDocId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" && window.isSecureContext) {
+    return crypto.randomUUID();
+  }
+  return `doc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function SingleDocInput({
   kind,
   label,
@@ -20,7 +31,7 @@ function SingleDocInput({
   function commitPaste() {
     const trimmed = text.trim();
     if (!trimmed) return;
-    onAdd({ id: crypto.randomUUID(), kind, filename: "pasted text", text: trimmed });
+    onAdd({ id: newDocId(), kind, filename: "pasted text", text: trimmed });
     setText("");
   }
 
