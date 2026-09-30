@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { getVoiceStyle, isCuratedVoice, type VoiceStyleKey } from "./voiceCategories";
+import { getVoiceStyle, selectableVoices, type VoiceStyleKey } from "./voiceCategories";
 
 // The Web Speech API has no official TS lib.dom types yet — minimal ambient
 // shapes for just what this hook uses.
@@ -18,7 +18,7 @@ interface SpeechRecognitionLike extends EventTarget {
   interimResults: boolean;
   lang: string;
   onresult: ((e: SpeechRecognitionEventLike) => void) | null;
-  onerror: ((e: Event) => void) | null;
+  onerror: ((e: Event & { error?: string }) => void) | null;
   onend: (() => void) | null;
   start: () => void;
   stop: () => void;
@@ -45,6 +45,21 @@ const getSupportedServerSnapshot = () => false;
 const VOICE_STORAGE_KEY = "elocu-voice-uri";
 const VOICE_STYLE_STORAGE_KEY = "elocu-voice-style";
 
+// Recognition errors that won't fix themselves by restarting — permission
+// denied, no microphone, or the recognizer service being unavailable.
+// Everything else ("no-speech", "network" blips, "aborted") is transient and
+// handled by onend's transparent restart.
+const FATAL_MIC_ERRORS = new Set(["not-allowed", "service-not-allowed", "audio-capture"]);
+const MIC_ERROR_MESSAGE =
+  "Couldn't use the microphone. Tap the mic to try again — if it keeps failing, allow microphone access for this site in your browser settings, or type instead.";
+
+// iOS Safari (and some other mobile browsers) only allow speech synthesis
+// that starts from a user gesture — otherwise speak() is silently dropped and
+// neither onstart nor onend ever fires, which used to leave the session stuck
+// in "Speaking…" with the mic disabled. If playback hasn't started within
+// this window, give up on it and report that it didn't play.
+const SPEAK_START_TIMEOUT_MS = 4000;
+
 /**
  * Wraps browser-native STT (SpeechRecognition) and TTS (speechSynthesis).
  *
@@ -59,6 +74,7 @@ const VOICE_STYLE_STORAGE_KEY = "elocu-voice-style";
 export function useSpeech(onFinalTranscript: (text: string) => void) {
   const [state, setState] = useState<VoiceState>("idle");
   const [interimText, setInterimText] = useState("");
+  const [micError, setMicError] = useState<string | null>(null);
   const supported = useSyncExternalStore(noopSubscribe, getSupportedSnapshot, getSupportedServerSnapshot);
 
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -77,6 +93,7 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const finalBufferRef = useRef("");
   const manualStopRef = useRef(false);
+  const fatalErrorRef = useRef(false);
   const onFinalRef = useRef(onFinalTranscript);
   // Indirection so the transparent-restart case (below) can call the latest
   // spawnRecognition without referencing it by name inside its own
@@ -141,11 +158,30 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
     };
 
     // Transient errors (e.g. a "no-speech" blip during a long pause) aren't
-    // fatal — only a manual stop should end the turn. onend decides whether
-    // to restart or finalize; there's nothing extra to do here.
-    recognition.onerror = () => {};
+    // fatal — only a manual stop should end the turn, and onend decides
+    // whether to restart or finalize. Fatal ones (FATAL_MIC_ERRORS) are
+    // flagged so onend stops instead of restarting: previously a denied mic
+    // restarted, failed, and restarted again forever with no message.
+    recognition.onerror = (e) => {
+      if (e.error && FATAL_MIC_ERRORS.has(e.error)) fatalErrorRef.current = true;
+    };
 
     recognition.onend = () => {
+      if (fatalErrorRef.current) {
+        fatalErrorRef.current = false;
+        manualStopRef.current = false;
+        // Don't lose anything already heard before the failure — hand it
+        // over for review like a normal finished turn.
+        const transcript = finalBufferRef.current.trim();
+        finalBufferRef.current = "";
+        setInterimText("");
+        recognitionRef.current = null;
+        setMicError(MIC_ERROR_MESSAGE);
+        if (transcript) onFinalRef.current(transcript);
+        else setState("idle");
+        return;
+      }
+
       if (manualStopRef.current) {
         manualStopRef.current = false;
         const transcript = finalBufferRef.current.trim();
@@ -204,7 +240,9 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
     }
     finalBufferRef.current = "";
     manualStopRef.current = false;
+    fatalErrorRef.current = false;
     setInterimText("");
+    setMicError(null);
 
     const recognition = spawnRecognition();
     if (!recognition) return;
@@ -214,6 +252,8 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
       recognition.start();
       setState("listening");
     } catch {
+      recognitionRef.current = null;
+      setMicError(MIC_ERROR_MESSAGE);
       setState("idle");
     }
   }, [spawnRecognition]);
@@ -228,11 +268,12 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
     recognitionRef.current.stop();
   }, []);
 
+  /** Resolves true once the line finishes playing, false if it never started (see SPEAK_START_TIMEOUT_MS). */
   const speak = useCallback(
-    (text: string): Promise<void> => {
+    (text: string): Promise<boolean> => {
       return new Promise((resolve) => {
         if (!("speechSynthesis" in window) || !text) {
-          resolve();
+          resolve(false);
           return;
         }
         window.speechSynthesis.cancel();
@@ -245,14 +286,31 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
           // from before curation existed. Falls through to the browser's
           // own default voice in that case, not an explicit request for
           // whatever the bad voice was.
-          const match = window.speechSynthesis.getVoices().filter(isCuratedVoice).find((v) => v.voiceURI === voiceURI);
+          const match = selectableVoices(window.speechSynthesis.getVoices()).find((v) => v.voiceURI === voiceURI);
           if (match) utterance.voice = match;
         }
         const style = getVoiceStyle(voiceStyle);
         utterance.pitch = style.pitch;
         utterance.rate = style.rate;
-        utterance.onend = () => resolve();
-        utterance.onerror = () => resolve();
+        let started = false;
+        let settled = false;
+        const settle = (played: boolean) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(watchdog);
+          resolve(played);
+        };
+        const watchdog = setTimeout(() => {
+          if (started) return;
+          window.speechSynthesis.cancel();
+          setState("idle");
+          settle(false);
+        }, SPEAK_START_TIMEOUT_MS);
+        utterance.onstart = () => {
+          started = true;
+        };
+        utterance.onend = () => settle(true);
+        utterance.onerror = () => settle(started);
         setState("speaking");
         window.speechSynthesis.speak(utterance);
       });
@@ -279,6 +337,7 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
     setState,
     supported,
     interimText,
+    micError,
     startListening,
     stopListening,
     speak,

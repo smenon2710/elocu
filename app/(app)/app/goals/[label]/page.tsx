@@ -34,7 +34,7 @@ export default async function GoalPage({ params }: { params: Promise<{ label: st
   const overallChange = latest - first;
 
   return (
-    <main className="mx-auto max-w-2xl p-8">
+    <main className="mx-auto max-w-2xl px-4 py-6 sm:p-8">
       <p className="font-mono text-xs tracking-[0.25em] text-verdigris-400 uppercase">Practice goal</p>
       <h1 className="mt-2 font-display text-3xl text-parchment-100">{label}</h1>
       <p className="mt-1 text-parchment-500">

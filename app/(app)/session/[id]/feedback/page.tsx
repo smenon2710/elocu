@@ -7,6 +7,7 @@ import { computeContentMetrics } from "@/lib/contentMetrics";
 import { computeConversationMetrics } from "@/lib/conversationMetrics";
 import { computeDeliveryMetrics } from "@/lib/deliveryMetrics";
 import { computePitchTiming } from "@/lib/pitchMetrics";
+import { METRIC_TOOLTIPS } from "@/lib/metricDefinitions";
 import { getFeedback, getPreviousAttemptForGoal, getSession } from "@/lib/store";
 import type { FeedbackSection, FeedbackSections, Session } from "@/lib/types";
 
@@ -25,21 +26,6 @@ function formatClock(ms: number): string {
   const s = totalSec % 60;
   return `${m}:${String(s).padStart(2, "0")}`;
 }
-
-const METRIC_TOOLTIPS = {
-  pitchTiming:
-    "The name comes from fitting a pitch inside a short elevator ride — 30–60s is the common convention for a cold pitch, sometimes 45–60s+ with more context (e.g. an interview). Running under your budget isn't automatically better either: it can mean you left out the value prop or the ask. The goal is landing the full shape — hook, value, ask — inside the time you chose.",
-  wpm: "Words per minute. Comprehension research (Univ. of Michigan; Univ. of Missouri) points to ~150–160 wpm as the clearest pace to listen to — noticeably faster measurably hurts comprehension. Slower (130–140) suits dense material; faster (150–165) suits persuasive contexts like debate.",
-  filler:
-    "Vocalized fillers like \"um\" and \"like.\" Occasional ones are natural and rarely hurt you — a high density is what tends to read as unprepared. There's no universal target; fewer is simply better.",
-  hedge:
-    "Words that soften a claim's confidence (\"I think,\" \"just,\" \"kind of\"). Used rarely they're normal — used often they can undercut a strong point even when the underlying content is solid.",
-  ttr: "Unique words ÷ total words. This drops naturally the longer you talk, even with no real change in vocabulary richness — read it as a same-session signal, not a score to chase.",
-  talkTime:
-    "Your share of words spoken vs. the AI's. Conversation-analysis research (e.g. Gong's study of 100,000+ sales calls) found the best-received two-way conversations cluster around 40–55% — well above that tends to mean not leaving room for the other person.",
-  questionRate:
-    "Share of your turns that asked something back. Rarely asking anything across many turns can read as low engagement with what they said, not just low curiosity.",
-} as const;
 
 /**
  * Derived straight from the turn's real startTs/endTs (see
@@ -154,12 +140,17 @@ function ConversationMetricsLine({ session }: { session: Session }) {
   );
 }
 
+// The bar alone relied on color + fill, so the number is shown alongside it
+// for anyone who can't easily tell the filled segments apart.
 function ScoreBar({ score }: { score: number }) {
   return (
-    <div className="flex gap-1" aria-label={`Score ${score} out of 5`}>
-      {[1, 2, 3, 4, 5].map((n) => (
-        <div key={n} className={`h-2 w-6 rounded-full ${n <= score ? "bg-ember-500" : "bg-ink-700"}`} />
-      ))}
+    <div className="flex items-center gap-2" role="img" aria-label={`Score ${score} out of 5`}>
+      <div className="flex gap-1">
+        {[1, 2, 3, 4, 5].map((n) => (
+          <div key={n} className={`h-2 w-5 rounded-full sm:w-6 ${n <= score ? "bg-ember-500" : "bg-ink-700"}`} />
+        ))}
+      </div>
+      <span className="font-mono text-xs text-parchment-300 tabular-nums">{score}/5</span>
     </div>
   );
 }
@@ -216,13 +207,30 @@ export default async function FeedbackPage({ params }: { params: Promise<{ id: s
     return scores.reduce((sum, n) => sum + n, 0) / scores.length;
   };
   const overallDelta = previousAttempt ? sectionAverage(feedback.sections) - sectionAverage(previousAttempt.sections) : null;
+  const overall = sectionAverage(feedback.sections);
+  // Lowest-scoring section = the one to work on next. Ties go to the first
+  // in display order, which puts the core sections ahead of the add-ons.
+  const focusEntry = valid ? entries.reduce((lo, e) => (e[1].score < lo[1].score ? e : lo), entries[0]) : null;
 
   return (
-    <main className="mx-auto max-w-2xl p-8">
+    <main className="mx-auto max-w-2xl px-4 py-6 sm:p-8">
       <p className="font-mono text-xs tracking-[0.25em] text-verdigris-400 uppercase">
         {stillOpen ? "Feedback so far" : "Session feedback"}
       </p>
-      <h1 className="mt-2 font-display text-3xl text-parchment-100">{session.topic}</h1>
+      <h1 className="mt-2 font-display text-2xl text-parchment-100 sm:text-3xl">{session.topic || "(impromptu)"}</h1>
+      {valid && (
+        <div className="mt-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 rounded-2xl border border-hairline bg-ink-800 px-5 py-4">
+          <p className="font-display text-4xl text-parchment-100 tabular-nums">
+            {overall.toFixed(1)}
+            <span className="ml-1 font-mono text-sm text-parchment-500">/ 5 overall</span>
+          </p>
+          {focusEntry && focusEntry[1].score < 5 && (
+            <p className="text-sm text-parchment-300">
+              Work on next: <span className="text-ember-400">{SECTION_LABELS[focusEntry[0]] ?? focusEntry[0]}</span>
+            </p>
+          )}
+        </div>
+      )}
       {session.goalLabel && (
         <p className="mt-1 text-sm text-parchment-500">
           Part of{" "}

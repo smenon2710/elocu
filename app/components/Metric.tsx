@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 const TOOLTIP_WIDTH = 208; // px
 const VIEWPORT_MARGIN = 12; // px, keeps the box off the screen edge
@@ -38,9 +38,34 @@ interface Position {
  * is a second safety net on top of that: even if a tooltip is long enough
  * to not fully fit the space it's given, it scrolls instead of spilling
  * off-screen.
+ *
+ * Touch screens have no hover, and tapping a non-form element doesn't
+ * reliably focus it on iOS — so a tap opens the tooltip too, and a tap
+ * anywhere else (or a scroll, which would strand a `fixed` box away from its
+ * trigger) dismisses it. The definition is linked via `aria-describedby` so
+ * screen readers announce it with the number, not just the number alone.
  */
 export function Metric({ children, tooltip }: { children: ReactNode; tooltip: string }) {
   const [pos, setPos] = useState<Position | null>(null);
+  const tooltipId = useId();
+  const triggerRef = useRef<HTMLSpanElement>(null);
+  const open = pos !== null;
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: PointerEvent) {
+      if (!triggerRef.current?.contains(e.target as Node)) setPos(null);
+    }
+    function onScroll() {
+      setPos(null);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [open]);
 
   function show(e: { currentTarget: HTMLSpanElement }) {
     if (typeof window === "undefined") return;
@@ -69,17 +94,26 @@ export function Metric({ children, tooltip }: { children: ReactNode; tooltip: st
 
   return (
     <span
+      ref={triggerRef}
       tabIndex={0}
+      aria-describedby={tooltipId}
       onMouseEnter={show}
       onMouseLeave={hide}
       onFocus={show}
       onBlur={hide}
+      onClick={show}
       className="cursor-help border-b border-dotted border-parchment-500/50 outline-none"
     >
       {children}
+      {/* Always in the DOM (visually hidden when closed) so aria-describedby
+          has something to point at for screen readers. */}
+      <span id={tooltipId} className="sr-only">
+        {tooltip}
+      </span>
       {pos && (
         <span
           role="tooltip"
+          aria-hidden="true"
           style={{ left: pos.left, top: pos.top, bottom: pos.bottom, width: TOOLTIP_WIDTH, maxHeight: pos.maxHeight }}
           className="pointer-events-none fixed z-50 overflow-y-auto rounded-lg border border-hairline bg-ink-900 p-3 font-sans text-xs leading-relaxed normal-case text-parchment-300 shadow-lg"
         >

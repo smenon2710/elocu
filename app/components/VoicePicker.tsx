@@ -1,6 +1,6 @@
 "use client";
 
-import { guessVoiceGender, isCuratedVoice, VOICE_STYLES, type VoiceStyleKey } from "@/lib/voiceCategories";
+import { guessVoiceGender, selectableVoices, VOICE_STYLES, type VoiceStyleKey } from "@/lib/voiceCategories";
 
 /**
  * Lets the user pick which browser TTS voice AI replies are spoken in, and
@@ -35,11 +35,10 @@ export function VoicePicker({
 }) {
   if (voices.length === 0) return null;
 
-  // Only ever offer the small curated set (lib/voiceCategories.ts) — falls
-  // back to the full raw list on a system where none of them happen to be
-  // installed, so the picker still works rather than showing nothing.
-  const curated = voices.filter(isCuratedVoice);
-  const effectiveVoices = curated.length > 0 ? curated : voices;
+  // Only ever offer the small curated set, or a short English fallback on a
+  // device with none of them (lib/voiceCategories.ts's selectableVoices —
+  // the same list speak() accepts, so whatever's picked here is honored).
+  const effectiveVoices = selectableVoices(voices);
 
   const byGender = { female: [] as SpeechSynthesisVoice[], male: [] as SpeechSynthesisVoice[], unspecified: [] as SpeechSynthesisVoice[] };
   for (const v of effectiveVoices) byGender[guessVoiceGender(v)].push(v);

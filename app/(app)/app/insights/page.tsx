@@ -5,11 +5,14 @@ import {
   computePitchTimingStats,
   computeProgressStats,
   distinctModes,
+  getFocusArea,
+  getRecentWordHabits,
   getStrengthSummary,
   MODE_LABELS,
   type CategoryAverage,
   type TrendDirection,
 } from "@/lib/progress";
+import { METRIC_TOOLTIPS } from "@/lib/metricDefinitions";
 import { computeObjectiveProgress } from "@/lib/objectives";
 import { listAllFeedback, listObjectives } from "@/lib/store";
 import type { SessionMode } from "@/lib/types";
@@ -17,6 +20,8 @@ import { CategoryBarChart } from "@/app/components/charts/CategoryBarChart";
 import { TrendLineChart } from "@/app/components/charts/TrendLineChart";
 import { TrendArrow } from "@/app/components/TrendArrow";
 import { StrengthCallout } from "@/app/components/StrengthCallout";
+import { FocusCallout } from "@/app/components/FocusCallout";
+import { Metric } from "@/app/components/Metric";
 import { ObjectiveCard } from "@/app/components/ObjectiveCard";
 import { ObjectiveForm } from "@/app/components/ObjectiveForm";
 
@@ -27,19 +32,24 @@ function StatTile({
   value,
   caption,
   trend,
+  className = "",
 }: {
   label: string;
   value: string;
   caption?: string;
   trend?: TrendDirection | null;
+  className?: string;
 }) {
   return (
-    <div className="rounded-xl border border-hairline bg-ink-800 p-5">
+    <div className={`min-w-0 rounded-xl border border-hairline bg-ink-800 p-4 sm:p-5 ${className}`}>
       <div className="flex items-center justify-between">
         <p className="font-mono text-xs tracking-[0.15em] text-parchment-500 uppercase">{label}</p>
         {trend !== undefined && <TrendArrow trend={trend} />}
       </div>
-      <p className="mt-2 font-display text-3xl text-parchment-100" style={{ fontVariantNumeric: "tabular-nums" }}>
+      <p
+        className="mt-2 font-display text-2xl text-parchment-100 sm:text-3xl"
+        style={{ fontVariantNumeric: "tabular-nums" }}
+      >
         {value}
       </p>
       {caption && <p className="mt-1 text-xs text-parchment-500">{caption}</p>}
@@ -58,7 +68,9 @@ function MetricTile({ stat }: { stat: CategoryAverage }) {
   return (
     <div className="rounded-xl border border-hairline bg-ink-800 p-4">
       <div className="flex items-center justify-between">
-        <p className="font-mono text-xs text-parchment-500">{stat.label}</p>
+        <p className="font-mono text-xs text-parchment-500">
+          {METRIC_TOOLTIPS[stat.key] ? <Metric tooltip={METRIC_TOOLTIPS[stat.key]}>{stat.label}</Metric> : stat.label}
+        </p>
         <TrendArrow trend={stat.trend} />
       </div>
       <p className="mt-1 font-display text-2xl text-parchment-100" style={{ fontVariantNumeric: "tabular-nums" }}>
@@ -101,7 +113,7 @@ export default async function InsightsPage({ searchParams }: { searchParams: Pro
 
   if (allRows.length === 0) {
     return (
-      <main className="mx-auto max-w-2xl p-8">
+      <main className="mx-auto max-w-2xl px-4 py-6 sm:p-8">
         <p className="font-mono text-xs tracking-[0.25em] text-verdigris-400 uppercase">Insights</p>
         <h1 className="mt-2 font-display text-3xl text-parchment-100">Your practice insights</h1>
         <p className="mt-2 text-parchment-500">
@@ -138,6 +150,8 @@ export default async function InsightsPage({ searchParams }: { searchParams: Pro
   const topMode = stats.modeAverages[0];
   const bestSection = stats.sectionAverages[0];
   const strength = getStrengthSummary(stats);
+  const focus = getFocusArea(rows, stats);
+  const wordHabits = getRecentWordHabits(rows);
   const modeContext =
     !selectedMode && topMode && stats.modeAverages.length > 1
       ? `Across every mode, you're strongest in ${topMode.label} (${topMode.average.toFixed(1)}/5).`
@@ -156,7 +170,7 @@ export default async function InsightsPage({ searchParams }: { searchParams: Pro
   const pitchStats = selectedMode === "pitch" ? computePitchTimingStats(rows) : null;
 
   return (
-    <main className="mx-auto max-w-3xl p-8">
+    <main className="mx-auto max-w-3xl px-4 py-6 sm:p-8">
       <p className="font-mono text-xs tracking-[0.25em] text-verdigris-400 uppercase">Insights</p>
       <h1 className="mt-2 font-display text-3xl text-parchment-100">Your practice insights</h1>
       <p className="mt-1 text-parchment-500">
@@ -187,12 +201,14 @@ export default async function InsightsPage({ searchParams }: { searchParams: Pro
         <StatTile label="Sessions completed" value={String(stats.totalCompleted)} />
         {selectedMode ? (
           <StatTile
+            className="col-span-2 sm:col-span-1"
             label="Best section"
             value={bestSection ? bestSection.label : "—"}
             caption={bestSection ? `${bestSection.average.toFixed(1)} / 5 avg` : undefined}
           />
         ) : (
           <StatTile
+            className="col-span-2 sm:col-span-1"
             label="Strongest mode"
             value={topMode ? MODE_LABELS[topMode.key as SessionMode] : "—"}
             caption={topMode ? `${topMode.average.toFixed(1)} / 5 avg` : undefined}
@@ -200,9 +216,14 @@ export default async function InsightsPage({ searchParams }: { searchParams: Pro
         )}
       </div>
 
-      {strength && (
-        <div className="mt-6">
-          <StrengthCallout summary={strength} modeContext={modeContext} />
+      {(strength || focus) && (
+        <div className={`mt-6 grid gap-3 ${strength && focus ? "sm:grid-cols-2" : ""}`}>
+          {/* FocusCallout covers the growth area in full, so the strength
+              card drops its one-line version when both are shown. */}
+          {strength && (
+            <StrengthCallout summary={focus ? { ...strength, growthLine: null } : strength} modeContext={modeContext} />
+          )}
+          {focus && <FocusCallout focus={focus} />}
         </div>
       )}
 
@@ -267,6 +288,19 @@ export default async function InsightsPage({ searchParams }: { searchParams: Pro
               <MetricTile key={stat.key} stat={stat} />
             ))}
           </div>
+          {wordHabits && (wordHabits.fillers.length > 0 || wordHabits.hedges.length > 0) && (
+            <p className="mt-3 text-sm text-parchment-300">
+              <span className="text-parchment-500">
+                Words to cut first, from your last {wordHabits.sessionCount} session
+                {wordHabits.sessionCount === 1 ? "" : "s"}:{" "}
+              </span>
+              {[...wordHabits.fillers, ...wordHabits.hedges]
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 4)
+                .map(([w, c]) => `"${w}" ×${c}`)
+                .join(", ")}
+            </p>
+          )}
         </section>
       )}
 

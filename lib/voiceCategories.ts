@@ -48,10 +48,36 @@ const CURATED_VOICE_NAMES = [
   "google uk english male",
 ];
 
-/** Whether a voice is in the small curated set — see the note above. */
+/**
+ * Whether a voice is in the small curated set — see the note above. Matched
+ * on word boundaries, not a bare substring, so "alex" doesn't also pull in
+ * "Alexandra" or similar.
+ */
 export function isCuratedVoice(voice: SpeechSynthesisVoice): boolean {
   const lower = voice.name.toLowerCase();
-  return CURATED_VOICE_NAMES.some((name) => lower.includes(name));
+  return CURATED_VOICE_NAMES.some((name) => new RegExp(`\\b${name}\\b`).test(lower));
+}
+
+// Android Chrome (and some Linux builds) name their voices after the locale
+// ("English United States") rather than any of the names above, so the
+// curated filter matches nothing there. Rather than dump the device's whole
+// raw list, fall back to a handful of English voices — still a short list,
+// per the curation rationale above.
+const FALLBACK_VOICE_LIMIT = 6;
+
+/**
+ * The voices a user can actually pick AND be spoken in — one function shared
+ * by the picker (app/components/VoicePicker.tsx) and lib/useSpeech.ts's
+ * speak(), so the two can never disagree. (They used to: on a device with no
+ * curated voice the picker fell back to the raw list, but speak() only
+ * accepted curated voices, so any voice picked there was silently ignored.)
+ */
+export function selectableVoices(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice[] {
+  const curated = voices.filter(isCuratedVoice);
+  if (curated.length > 0) return curated;
+  const english = voices.filter((v) => v.lang.toLowerCase().startsWith("en"));
+  const pool = english.length > 0 ? english : voices;
+  return [...pool].sort((a, b) => Number(b.default) - Number(a.default)).slice(0, FALLBACK_VOICE_LIMIT);
 }
 
 export type VoiceGender = "female" | "male" | "unspecified";

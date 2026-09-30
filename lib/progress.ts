@@ -3,7 +3,7 @@ import { computeConversationMetrics } from "./conversationMetrics";
 import { computeDeliveryMetrics } from "./deliveryMetrics";
 import { computePitchTiming } from "./pitchMetrics";
 import type { FeedbackWithSession } from "./store";
-import type { FeedbackSections, SessionMode } from "./types";
+import type { FeedbackSection, FeedbackSections, SessionMode } from "./types";
 
 export const MODE_LABELS: Record<SessionMode, string> = {
   interview: "Interview",
@@ -407,6 +407,109 @@ export function getStrengthSummary(stats: ProgressStats): StrengthSummary | null
       : null;
 
   return { title, headline, growthLine };
+}
+
+// How far back "lately" reaches for the focus-area and recurring-words views
+// below — recent enough to reflect current habits, long enough that one odd
+// session doesn't define the picture.
+const RECENT_SESSION_WINDOW = 5;
+
+export interface FocusArea {
+  key: keyof FeedbackSections;
+  label: string;
+  average: number;
+  trend: TrendDirection | null;
+  /** How many of the last `recentWindow` sessions had this as their (tied-)lowest section. */
+  recentLowestCount: number;
+  recentWindow: number;
+  /** The most recent real grading fix written for this section — never a new LLM call. */
+  latestFix: string | null;
+  latestFixSessionId: string | null;
+  latestFixMode: SessionMode | null;
+}
+
+/**
+ * The "what do I work on next" counterpart to getStrengthSummary: the
+ * lowest-averaging section in scope, whether it's a persistent pattern or a
+ * one-off (how often it was the lowest across recent sessions), and the most
+ * recent concrete fix the grader already wrote for it — so the Insights page
+ * hands over an actual next action, not just a ranking. Deterministic over
+ * existing feedback; no LLM call (see plan.md §37). Null when there's
+ * nothing below the strongest section to point at.
+ */
+export function getFocusArea(rows: FeedbackWithSession[], stats: ProgressStats): FocusArea | null {
+  const best = stats.sectionAverages[0];
+  const worst = stats.sectionAverages[stats.sectionAverages.length - 1];
+  if (!worst || !best || worst.key === best.key) return null;
+  const key = worst.key as keyof FeedbackSections;
+
+  const validRows = rows.filter((r) => r.valid);
+  const recent = validRows.slice(-RECENT_SESSION_WINDOW);
+  let recentLowestCount = 0;
+  for (const row of recent) {
+    const own = row.sections[key];
+    if (!own) continue;
+    const min = Math.min(
+      ...Object.values(row.sections)
+        .filter((x): x is FeedbackSection => !!x)
+        .map((x) => x.score)
+    );
+    if (own.score === min) recentLowestCount++;
+  }
+
+  const scores = validRows.map((r) => r.sections[key]?.score).filter((n): n is number => n !== undefined);
+
+  let latestFix: string | null = null;
+  let latestFixSessionId: string | null = null;
+  let latestFixMode: SessionMode | null = null;
+  for (let i = validRows.length - 1; i >= 0; i--) {
+    const section = validRows[i].sections[key];
+    if (section?.fix) {
+      latestFix = section.fix;
+      latestFixSessionId = validRows[i].sessionId;
+      latestFixMode = validRows[i].mode;
+      break;
+    }
+  }
+
+  return {
+    key,
+    label: worst.label,
+    average: worst.average,
+    trend: computeTrend(scores, "higher-better", SCORE_TREND_THRESHOLD),
+    recentLowestCount,
+    recentWindow: recent.length,
+    latestFix,
+    latestFixSessionId,
+    latestFixMode,
+  };
+}
+
+export interface RecentWordHabits {
+  sessionCount: number;
+  fillers: [string, number][];
+  hedges: [string, number][];
+}
+
+/**
+ * Which specific filler and hedge words keep showing up across recent
+ * sessions — the Delivery tiles give a percentage, but "cut 'like' and
+ * 'just'" is what someone can actually act on. Summed from the same
+ * deterministic word lists lib/deliveryMetrics.ts uses per session.
+ */
+export function getRecentWordHabits(rows: FeedbackWithSession[], limit = 3): RecentWordHabits | null {
+  const recent = rows.filter((r) => r.valid).slice(-RECENT_SESSION_WINDOW);
+  if (recent.length === 0) return null;
+  const fillers = new Map<string, number>();
+  const hedges = new Map<string, number>();
+  for (const row of recent) {
+    const { fillerBreakdown, hedgeBreakdown } = computeDeliveryMetrics({ turns: row.turns });
+    for (const [w, c] of fillerBreakdown) fillers.set(w, (fillers.get(w) ?? 0) + c);
+    for (const [w, c] of hedgeBreakdown) hedges.set(w, (hedges.get(w) ?? 0) + c);
+  }
+  const top = (m: Map<string, number>) =>
+    [...m.entries()].filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).slice(0, limit);
+  return { sessionCount: recent.length, fillers: top(fillers), hedges: top(hedges) };
 }
 
 /** Distinct modes actually present in `rows`, most-recent-first by their latest session — powers the insights page's mode tabs (only tabs with real data are shown). */
