@@ -9,8 +9,22 @@ async function ensureDir() {
   await fs.mkdir(SESSIONS_DIR, { recursive: true });
 }
 
-const sessionPath = (id: string) => path.join(SESSIONS_DIR, `${id}.json`);
-const feedbackPath = (id: string) => path.join(SESSIONS_DIR, `${id}.feedback.json`);
+// Every session/objective id is minted by crypto.randomUUID(), and ids arrive
+// straight from URL params — so anything that isn't a UUID is rejected before
+// it can become part of a file path (e.g. "../" escaping data/).
+const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isValidId(id: string): boolean {
+  return ID_PATTERN.test(id);
+}
+
+function safeId(id: string): string {
+  if (!isValidId(id)) throw new Error(`Invalid id: ${id}`);
+  return id;
+}
+
+const sessionPath = (id: string) => path.join(SESSIONS_DIR, `${safeId(id)}.json`);
+const feedbackPath = (id: string) => path.join(SESSIONS_DIR, `${safeId(id)}.feedback.json`);
 
 export async function saveSession(session: Session): Promise<void> {
   await ensureDir();
@@ -227,6 +241,7 @@ export async function getPreviousAttemptForGoal(
 }
 
 export async function deleteSession(id: string): Promise<void> {
+  if (!isValidId(id)) return;
   await Promise.all([
     fs.unlink(sessionPath(id)).catch(() => {}),
     fs.unlink(feedbackPath(id)).catch(() => {}),
@@ -237,7 +252,7 @@ async function ensureObjectivesDir() {
   await fs.mkdir(OBJECTIVES_DIR, { recursive: true });
 }
 
-const objectivePath = (id: string) => path.join(OBJECTIVES_DIR, `${id}.json`);
+const objectivePath = (id: string) => path.join(OBJECTIVES_DIR, `${safeId(id)}.json`);
 
 export async function saveObjective(objective: Objective): Promise<void> {
   await ensureObjectivesDir();
@@ -279,5 +294,6 @@ export async function listObjectives(): Promise<Objective[]> {
 }
 
 export async function deleteObjective(id: string): Promise<void> {
+  if (!isValidId(id)) return;
   await fs.unlink(objectivePath(id)).catch(() => {});
 }

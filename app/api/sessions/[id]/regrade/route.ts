@@ -5,8 +5,9 @@ import { gradeSession } from "@/lib/grading";
 /**
  * Re-runs the grading LLM call for a session whose last grading pass failed
  * (a parse/validation failure, or a provider outage that outlasted the
- * fallback chain). Unlike /end — which is idempotent and never regrades once
- * any feedback file exists — this deliberately overwrites, but only when the
+ * fallback chain). Unlike /end — which only regrades feedback left stale by
+ * an earlier /pause, and never once the session has ended — this
+ * deliberately overwrites an ended session's feedback, but only when the
  * cached feedback is actually a `gradingFailed` placeholder, so a good result
  * can't be spent on another call by accident. Works on already-ended
  * sessions, which /pause refuses to touch. No-op (returns the existing

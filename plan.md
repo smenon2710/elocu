@@ -1458,3 +1458,36 @@ with a microphone (no audio/STT in this environment); flagged for the user to ex
 speak a turn, tap the mic, confirm the transcript appears editable, edit it, Send, and check the
 sent turn matches the edit while the Delivery/pace numbers on the feedback page still reflect the
 real speaking time.
+
+---
+
+## 42. Stale feedback on end-after-pause, and server-side input validation
+
+Found in a full read of the code and docs, none of it previously recorded in `review.md`.
+
+- **[Bug] Ending a session after pausing it served the pause's feedback.** `/end` returned cached
+  feedback whenever *any* existed — but `/pause` writes feedback too, for a session that stays
+  resumable. So pause → keep talking → End returned the grade from the pause, and the turns after it
+  were never graded at all. §11 promised "no stale cached feedback", but only `/pause` checked
+  `gradedTurnCount`. **Fix** (`app/api/sessions/[id]/end/route.ts`): on a not-yet-ended session,
+  regrade if the cached feedback is behind the transcript (`gradedTurnCount !== turns.length`) or the
+  pause's grading failed. Everything else still returns the cached result, so repeat Ends and
+  revisits cost no extra call. Feedback from before `gradedTurnCount` existed is treated as current —
+  there's no way to tell, and a revisit shouldn't spend a call guessing.
+- **[Hardening] Ids from URL params went straight into file paths.** `sessionPath(id)` /
+  `feedbackPath` / `objectivePath` joined the raw route param into `data/`. **Fix**
+  (`lib/store.ts`): every id is minted by `crypto.randomUUID()`, so anything else is rejected before
+  it becomes a path — reads return null (→ 404), deletes no-op. Checked first that every file already
+  in `data/` is UUID-named, so no existing session is locked out.
+- **[Bug] Attached documents were trusted as-is at session creation.** `POST /api/sessions` stored
+  `body.documentRefs` unvalidated. Worse than a direct-API edge case: pasted text is built
+  client-side (`DocSlot.tsx`) and never passes through `/api/documents`, so the 20k cap only ever
+  applied to uploads — and every doc is resent in the persona prompt on every turn. **Fix**: new
+  `sanitizeDocumentRefs()` in `lib/documents.ts` — per-doc 20k cap (truncated, matching uploads), at
+  most 10 docs, unknown kinds become `other`, empty docs dropped, filenames length-capped. The upload
+  route now imports the same constants rather than keeping its own copy.
+
+**Verification**: `tsc --noEmit` and `eslint` clean. Against the dev server with a throwaway session
+(deleted after): `GET`/`DELETE /api/sessions/..%2F..%2Fpackage` → 404 / no-op, `package.json`
+untouched; a 50k-char doc with kind `"evil"` plus a blank doc → stored as one 20k-char `other`; pause
+at 3 turns → one more exchange → End graded all 5 turns, and a repeat End returned the cached result.

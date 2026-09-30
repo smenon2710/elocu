@@ -12,13 +12,24 @@ export async function POST(
     return NextResponse.json({ error: "session not found" }, { status: 404 });
   }
 
-  // Idempotent: a session can only be graded once. Repeat calls (auto-end
-  // racing the manual "End session" button, a retried fetch, revisiting an
-  // already-ended session) return the cached feedback instead of paying for
-  // another grading LLM call.
+  // Idempotent: repeat calls (auto-end racing the manual "End session"
+  // button, a retried fetch, revisiting an already-ended session) return the
+  // cached feedback instead of paying for another grading LLM call. But
+  // cached feedback can come from an earlier /pause — if turns were added
+  // after that pause (`gradedTurnCount` behind), or the pause's grading
+  // failed, ending is the last chance to grade the full transcript, so it
+  // regrades. Feedback predating `gradedTurnCount` is treated as current,
+  // since there's no way to tell and revisits shouldn't spend a call.
   const existingFeedback = await getFeedback(id);
   if (existingFeedback) {
-    return NextResponse.json({ feedback: existingFeedback });
+    const staleFromPause =
+      !session.endedAt &&
+      (existingFeedback.gradingFailed ||
+        (existingFeedback.gradedTurnCount !== undefined &&
+          existingFeedback.gradedTurnCount !== session.turns.length));
+    if (!staleFromPause) {
+      return NextResponse.json({ feedback: existingFeedback });
+    }
   }
 
   if (!session.endedAt) {
