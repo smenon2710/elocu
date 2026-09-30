@@ -273,12 +273,25 @@ export async function getPreviousAttemptForGoal(
   return rows[0] ? toFeedbackWithSession(rows[0]) : null;
 }
 
-/** Feedback goes with it (ON DELETE CASCADE). */
+/**
+ * Deletes the session and everything derived from it: its feedback (ON DELETE
+ * CASCADE), and its LLM call logs and grading-failure records — those are
+ * keyed by session id with no foreign key, and a grading-failure row keeps up
+ * to 4,000 chars of raw model output that can quote the user, so "delete"
+ * has to reach them too. The logs are only touched if the session row was
+ * actually the caller's and got deleted.
+ */
 export async function deleteSession(userId: string, id: string): Promise<void> {
   if (!isValidId(id)) return;
-  await db()
-    .delete(sessions)
-    .where(and(eq(sessions.id, id), eq(sessions.userId, userId)));
+  await db().transaction(async (tx) => {
+    const deleted = await tx
+      .delete(sessions)
+      .where(and(eq(sessions.id, id), eq(sessions.userId, userId)))
+      .returning({ id: sessions.id });
+    if (deleted.length === 0) return;
+    await tx.delete(schema.llmCallLogs).where(eq(schema.llmCallLogs.sessionId, id));
+    await tx.delete(schema.gradingFailures).where(eq(schema.gradingFailures.sessionId, id));
+  });
 }
 
 export async function saveObjective(objective: Objective): Promise<void> {

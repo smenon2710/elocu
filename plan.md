@@ -1747,3 +1747,32 @@ makes the test deterministic.)
 
 **Deploy note:** migration `0001_rate_limits` must be applied to Neon *before* this code ships —
 until it is, the limiter fails open (allows everything) rather than breaking the routes.
+
+---
+
+## 48. Deleting a session cleans up everything, and a quieter history scrollbar
+
+**Delete, followed through.** A session's feedback already went with it (ON DELETE CASCADE), and
+Insights / goal progress recompute from the database on every render, so the *data* was always
+right. Two gaps:
+- **An open page kept stale numbers** — deleting from the History list didn't re-render the page on
+  screen (e.g. Insights still counting the deleted session until a reload). `HistoryList` now calls
+  `router.refresh()` after the delete, or navigates to `/app` if the deleted session is the one
+  being viewed (rather than leaving a 404 on screen).
+- **Logs outlived the session.** `llm_call_logs` and `grading_failures` are keyed by session id with
+  no foreign key, so they stayed behind — and a grading-failure row keeps up to 4,000 chars of raw
+  model output that can quote the user. `deleteSession` now removes both in the same transaction,
+  and only after the session row itself was confirmed the caller's and deleted.
+  Verified 7/7 on Postgres: another user's delete leaves the session, logs, and failures intact; the
+  owner's removes session, feedback, call logs, and grading failures.
+
+**Scrollbar.** The sidebar showed the OS's light scrollbar (white track, grey thumb) on a near-black
+panel — the app never declared itself dark. Now:
+- `color-scheme: dark` on `:root`, so all native chrome (scrollbars, `<select>` menus) renders dark.
+- Thin themed scrollbars app-wide — a faint parchment thumb on a transparent track, brighter on
+  hover — via `scrollbar-width`/`scrollbar-color`, with `::-webkit-scrollbar` rules only where those
+  aren't supported (Safari).
+- `.scroll-quiet` on the history list (sidebar and mobile drawer): the thumb is invisible until the
+  list is hovered or keyboard-focused, with `scrollbar-gutter: stable` so text never shifts; plus
+  `.scroll-fade`, a soft mask at the bottom edge hinting there's more to scroll.
+Checked with a before/after render using the app's compiled CSS, at rest and on hover.

@@ -33,6 +33,83 @@
 :root {
   --background: #14131b;
   --foreground: #f3ede1;
+  /* Tells the browser this is a dark UI, so native chrome — scrollbars,
+     <select> menus, form controls — renders dark instead of the OS's light
+     defaults (a bright white scrollbar track down the history sidebar was
+     the visible symptom). */
+  color-scheme: dark;
+
+  --scrollbar-thumb: rgb(243 237 225 / 14%);
+  --scrollbar-thumb-hover: rgb(243 237 225 / 28%);
+}
+
+/* Thin, quiet scrollbars app-wide: a faint parchment thumb on a transparent
+   track. `scrollbar-width`/`scrollbar-color` cover Firefox and Chromium; the
+   ::-webkit-scrollbar rules are only for engines without them (Safari), since
+   Chromium ignores those once scrollbar-color is set. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+*:hover {
+  scrollbar-color: var(--scrollbar-thumb-hover) transparent;
+}
+
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+    background-clip: padding-box;
+  }
+}
+
+/* For secondary lists (the history sidebar/drawer): the thumb stays invisible
+   until the list is hovered or keyboard-focused, so a long history reads as a
+   clean column rather than a column with a rail beside it. The gutter is
+   reserved either way, so text never shifts when the thumb appears. */
+.scroll-quiet {
+  scrollbar-gutter: stable;
+  scrollbar-color: transparent transparent;
+}
+
+.scroll-quiet:hover,
+.scroll-quiet:focus-within {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+@supports not (scrollbar-color: auto) {
+  .scroll-quiet::-webkit-scrollbar-thumb {
+    background: transparent;
+  }
+
+  .scroll-quiet:hover::-webkit-scrollbar-thumb,
+  .scroll-quiet:focus-within::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    background-clip: padding-box;
+  }
+}
+
+/* Soft fade at the scroll edges — hints there's more below instead of the
+   list ending on a hard cut. Pair with bottom padding so the last item can
+   scroll fully clear of the fade. */
+.scroll-fade {
+  mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 32px), transparent 100%);
 }
 
 body {
