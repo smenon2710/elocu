@@ -11,7 +11,17 @@ import { fetchWithTimeout } from "./fetchWithTimeout";
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
-export class LLMError extends Error {}
+export class LLMError extends Error {
+  /** HTTP status, when the provider answered with one. */
+  status?: number;
+  /** For a 429: how long the provider said to wait, when it said. */
+  retryAfterMs?: number;
+  constructor(message: string, extra: { status?: number; retryAfterMs?: number } = {}) {
+    super(message);
+    this.status = extra.status;
+    this.retryAfterMs = extra.retryAfterMs;
+  }
+}
 
 export type Provider = "groq" | "openrouter" | "ollama";
 
@@ -37,6 +47,39 @@ const PROVIDER_CONFIG: Record<Provider, { url: string; apiKeyEnv?: string; extra
 export interface ModelChoice {
   provider: Provider;
   model: string;
+  /**
+   * Output-token ceiling for this call. Left unset, the provider's default
+   * applies — and for a reasoning model that default is shared between its
+   * hidden reasoning and the visible answer (see lib/grading.ts for the real
+   * failure that caused).
+   */
+  maxTokens?: number;
+  /** Only sent to models that take it (Groq's openai/gpt-oss-*); ignored elsewhere. */
+  reasoningEffort?: "low" | "medium" | "high";
+}
+
+// Groq documents `reasoning_effort` for the gpt-oss models only — sending it
+// to anything else is a 400, so it's gated on the model name rather than
+// trusted to whatever GROQ_MODEL_* happens to be overridden to.
+function supportsReasoningEffort(choice: ModelChoice): boolean {
+  return choice.provider === "groq" && choice.model.includes("gpt-oss");
+}
+
+function outputLimitParams(choice: ModelChoice): Record<string, unknown> {
+  return {
+    ...(choice.maxTokens
+      ? choice.provider === "groq"
+        ? { max_completion_tokens: choice.maxTokens }
+        : { max_tokens: choice.maxTokens }
+      : {}),
+    ...(choice.reasoningEffort && supportsReasoningEffort(choice) ? { reasoning_effort: choice.reasoningEffort } : {}),
+  };
+}
+
+/** `Retry-After` in seconds (Groq sends fractional ones) → ms, or undefined if absent/unparseable. */
+function retryAfterMsFrom(res: Response): number | undefined {
+  const sec = Number(res.headers.get("retry-after"));
+  return Number.isFinite(sec) && sec > 0 ? Math.ceil(sec * 1000) : undefined;
 }
 
 interface LogEntry {
@@ -86,7 +129,7 @@ async function logCall(entry: LogEntry): Promise<void> {
 async function callOnce(
   choice: ModelChoice,
   messages: ChatMessage[],
-  opts: { temperature?: number; timeoutMs?: number; label?: string; sessionId?: string }
+  opts: { temperature?: number; timeoutMs?: number; label?: string; sessionId?: string; rejectTruncated?: boolean }
 ): Promise<string> {
   const { url, apiKeyEnv, extraHeaders } = PROVIDER_CONFIG[choice.provider];
   const apiKey = apiKeyEnv ? process.env[apiKeyEnv] : undefined;
@@ -110,7 +153,7 @@ async function callOnce(
 
   type Outcome =
     | { ok: true; content: string; responseModel?: string; responseId?: string; usage?: unknown }
-    | { ok: false; error: string; status?: number };
+    | { ok: false; error: string; status?: number; retryAfterMs?: number };
 
   let outcome: Outcome;
   try {
@@ -132,6 +175,7 @@ async function callOnce(
           // filterable/traceable per session too, not just per API key.
           // Ollama (local) just ignores the field.
           ...(opts.sessionId ? { user: opts.sessionId } : {}),
+          ...outputLimitParams(choice),
         }),
       },
       // 45s: even the fast path (Groq) deserves a real ceiling rather than
@@ -144,12 +188,29 @@ async function callOnce(
       async (res) => {
         if (!res.ok) {
           const body = await res.text().catch(() => "");
-          return { ok: false, error: `${choice.provider} request failed (${res.status}): ${body.slice(0, 500)}`, status: res.status };
+          return {
+            ok: false,
+            error: `${choice.provider} request failed (${res.status}): ${body.slice(0, 500)}`,
+            status: res.status,
+            retryAfterMs: res.status === 429 ? retryAfterMsFrom(res) : undefined,
+          };
         }
         const data = await res.json();
         const content = data?.choices?.[0]?.message?.content;
+        // "length" = the model ran into its output-token ceiling. A reasoning
+        // model can spend the whole ceiling thinking and return no content at
+        // all, or return an answer cut off mid-way — say which, since "no
+        // content" alone gives nothing to act on.
+        const finishReason = data?.choices?.[0]?.finish_reason;
+        const truncated = finishReason === "length";
         if (typeof content !== "string" || content.length === 0) {
-          return { ok: false, error: `${choice.provider} response had no message content` };
+          return {
+            ok: false,
+            error: `${choice.provider} response had no message content${truncated ? " (hit the output-token limit before answering)" : ""}`,
+          };
+        }
+        if (truncated && opts.rejectTruncated) {
+          return { ok: false, error: `${choice.provider} response was cut off at the output-token limit` };
         }
         return { ok: true, content, responseModel: data?.model, responseId: data?.id, usage: data?.usage };
       }
@@ -172,7 +233,7 @@ async function callOnce(
       status: outcome.status,
       error: outcome.error,
     });
-    throw new LLMError(outcome.error);
+    throw new LLMError(outcome.error, { status: outcome.status, retryAfterMs: outcome.retryAfterMs });
   }
 
   await logCall({
@@ -198,6 +259,15 @@ async function callOnce(
  * (lib/conversation.ts) and the grading pass (lib/grading.ts), each picking
  * its own primary/fallback chain — currently Groq -> OpenRouter -> local
  * Ollama, fastest/most-reliable first.
+ *
+ * `rejectTruncated`: treat an answer cut off at the output-token limit as a
+ * failure (and move down the chain) — for callers that need the whole
+ * response, like grading's JSON. A conversation reply is still usable cut
+ * short, so it's off by default.
+ *
+ * `rateLimitWaitMs`: if the whole chain fails and a provider said "rate
+ * limited, retry in N ms" with N inside this budget, wait and try that
+ * provider once more. Off by default (0).
  */
 export async function chatCompletion(
   messages: ChatMessage[],
@@ -206,26 +276,49 @@ export async function chatCompletion(
     timeoutMs?: number;
     label?: string;
     sessionId?: string;
+    rejectTruncated?: boolean;
+    rateLimitWaitMs?: number;
     primary: ModelChoice;
     fallbacks?: ModelChoice[];
   }
 ): Promise<string> {
   const chain = [opts.primary, ...(opts.fallbacks ?? [])];
+  // The first provider (in chain order) that was rate-limited with a wait
+  // short enough to sit out.
+  let retryable: { choice: ModelChoice; waitMs: number } | null = null;
+  let lastError: unknown = new LLMError("No provider configured");
 
   for (let i = 0; i < chain.length; i++) {
     try {
       return await callOnce(chain[i], messages, opts);
     } catch (err) {
-      const isLast = i === chain.length - 1;
-      if (isLast) throw err;
+      lastError = err;
+      if (
+        !retryable &&
+        err instanceof LLMError &&
+        err.status === 429 &&
+        err.retryAfterMs !== undefined &&
+        err.retryAfterMs <= (opts.rateLimitWaitMs ?? 0)
+      ) {
+        retryable = { choice: chain[i], waitMs: err.retryAfterMs };
+      }
       const reason = err instanceof Error ? err.message : "unknown error";
-      console.log(`[llm] ${chain[i].provider} failed (${reason}) — falling back to ${chain[i + 1].provider}`);
+      if (i < chain.length - 1) {
+        console.log(`[llm] ${chain[i].provider} failed (${reason}) — falling back to ${chain[i + 1].provider}`);
+      }
     }
   }
 
-  // Unreachable (chain always has at least `primary`), but keeps TypeScript
-  // happy about the function always returning or throwing.
-  throw new LLMError("No provider configured");
+  if (retryable) {
+    // A little past what the provider asked for, so the retry doesn't land
+    // on the boundary of the same window.
+    const waitMs = retryable.waitMs + 500;
+    console.log(`[llm] every provider failed; ${retryable.choice.provider} was rate-limited — retrying it in ${waitMs}ms`);
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    return callOnce(retryable.choice, messages, opts);
+  }
+
+  throw lastError;
 }
 
 export interface LoggedCall {

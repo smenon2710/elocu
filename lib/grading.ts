@@ -48,37 +48,53 @@ export async function getSessionParseFailures(sessionId: string): Promise<ParseF
   return rows.map((r) => ({ ts: r.ts.toISOString(), sessionId: r.sessionId, reason: r.reason, raw: r.raw }));
 }
 
-// Groq primary: was llama-3.1-8b-instant (switched to after gpt-oss-20b
-// twice produced malformed JSON — see the note on validateQuotedMoment()
-// below, which was itself added after gpt-oss-20b misattributed a quote).
-// llama-3.1-8b-instant was then fully removed from Groq's catalog at some
-// point after that — every call was 404ing with model_not_found (see
-// plan.md §22). Re-benchmarked live against Groq's current model list: no
-// candidate is risk-free, so this is gpt-oss-20b again, deliberately —
-// fastest (~0.3s vs. 2-3s for gpt-oss-120b), valid JSON in 6/6 live test
-// runs today, and clearly the most rubric-accurate of the options tested
-// (gpt-oss-120b and groq/compound-mini both graded the AI's own opening
-// line instead of the user's turn; allam-2-7b's fixes were vaguer and its
-// scores less sensitive to actual filler-heavy delivery). Its two known
-// failure modes — malformed JSON, misattributed quotes — are exactly what
-// the parse-validation fallback below and validateQuotedMoment() exist to
-// catch gracefully, which is the real reason it's an acceptable choice
-// again rather than a repeat of the original mistake. Fallback chain
-// unchanged: OpenRouter/Gemma, then local Ollama/llama3.2.
+// Claude Haiku 5.5 (via OpenRouter) primary, Groq gpt-oss-20b fallback — the
+// reverse of the conversation chain, which stays Groq-first for speed. Picked
+// from a side-by-side on six real sessions across five modes (plan.md §52):
+// Haiku graded 6/6 with every quote a real user line (27/27) and the most
+// specific fixes; gpt-oss-20b graded 5/6 with a third of its quotes dropped by
+// validateQuotedMoment(); paid Gemma 4 was reliable but more generic; DeepSeek
+// V4.1 Flash spent its whole output budget reasoning and failed outright.
+// The cost is ~8s instead of ~1s on a screen the user is already waiting on,
+// and about a tenth of a cent per grade.
+//
+// The free Gemma model that used to sit here as the OpenRouter fallback was
+// rate-limited upstream on every real attempt, so it's gone rather than kept
+// as a third tier that never answers.
 const GRADING_PRIMARY: ModelChoice = {
-  provider: "groq",
-  model: process.env.GROQ_MODEL_GRADING || "openai/gpt-oss-20b",
+  provider: "openrouter",
+  model: process.env.OPENROUTER_MODEL_GRADING || "anthropic/claude-haiku-5.5",
+  // Haiku's answers ran 1,400-1,900 tokens in testing.
+  maxTokens: 4000,
 };
+// gpt-oss-20b is a reasoning model, and its hidden reasoning comes out of the
+// same output-token budget as the answer. With no limit set, a real 17-turn
+// debate hit Groq's 2,048-token default on every attempt — ~1,500 tokens of
+// reasoning, then the JSON cut off mid-section ("response was not valid
+// JSON"), or no answer at all ("no message content"). Low reasoning effort
+// leaves the budget for the answer (~600 tokens), and the ceiling is explicit.
+// Its other known failure modes — malformed JSON, misattributed quotes — are
+// what the parse-validation fallback below and validateQuotedMoment() catch.
 const GRADING_FALLBACKS: ModelChoice[] = [
   {
-    provider: "openrouter",
-    model: process.env.OPENROUTER_MODEL_GRADING || "google/gemma-4-26b-a4b-it:free",
+    provider: "groq",
+    model: process.env.GROQ_MODEL_GRADING || "openai/gpt-oss-20b",
+    maxTokens: 3000,
+    reasoningEffort: "low",
   },
   {
     provider: "ollama",
     model: process.env.OLLAMA_MODEL_GRADING || "llama3.2",
+    maxTokens: 3000,
   },
 ];
+
+// When every provider fails and one of them said "rate limited, retry in a
+// few seconds" (Groq's free tier allows 8,000 tokens a minute, and grading
+// runs right after the last conversation turn), wait and try it once more. The user is already waiting on a feedback screen; sitting
+// that out beats handing back placeholder scores. Bounded so the wait, plus
+// the calls either side of it, stays inside the routes' maxDuration (120s).
+const GRADING_RATE_LIMIT_WAIT_MS = 30_000;
 
 type SectionKey = "structure" | "delivery" | "content" | "engagement" | "contextFit" | "argumentation";
 
@@ -315,7 +331,8 @@ ${interviewStructureNote(session)}
 
 Score the USER's performance on each section below, on an integer scale of 1
 (needs significant work) to 5 (excellent). For each section, quote exactly one
-short verbatim moment from a USER turn with its turn index, and give one
+short verbatim moment from a USER turn with its turn index — a single phrase or
+sentence of at most 25 words, copied exactly, never a whole turn — and give one
 concrete, specific fix — never generic advice like "be more concise". Name the
 exact sentence or phrase and what to do instead.
 
@@ -344,6 +361,8 @@ export async function gradeSession(session: Session): Promise<Feedback> {
       timeoutMs: 45000,
       label: "grading",
       sessionId: session.id,
+      rejectTruncated: true,
+      rateLimitWaitMs: GRADING_RATE_LIMIT_WAIT_MS,
       primary: GRADING_PRIMARY,
       fallbacks: GRADING_FALLBACKS,
     });

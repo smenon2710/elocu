@@ -11,7 +11,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:import-local": "tsx scripts/import-local-data.ts",
     "db:claim-local": "tsx scripts/claim-local-data.ts",
-    "beta:report": "tsx scripts/beta-report.ts"
+    "beta:report": "tsx scripts/beta-report.ts",
+    "beta:invite": "tsx scripts/beta-invite.ts"
   },
   "dependencies": {
     "@clerk/backend": "^3.21.0",

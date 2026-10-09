@@ -117,6 +117,38 @@ export function guessVoiceGender(voice: SpeechSynthesisVoice): VoiceGender {
   return "unspecified";
 }
 
+export interface VoiceGroup {
+  gender: VoiceGender;
+  label: string;
+  voices: SpeechSynthesisVoice[];
+}
+
+/**
+ * The selectable voices grouped by guessed gender (empty groups dropped),
+ * English first then by name — one ordering shared by the in-session picker,
+ * the Voice settings page, and the start page's female/male choice, so "the
+ * first female voice" means the same voice everywhere.
+ */
+export function groupSelectableVoices(voices: SpeechSynthesisVoice[]): VoiceGroup[] {
+  const byGender: Record<VoiceGender, SpeechSynthesisVoice[]> = { female: [], male: [], unspecified: [] };
+  for (const v of selectableVoices(voices)) byGender[guessVoiceGender(v)].push(v);
+
+  const sortGroup = (group: SpeechSynthesisVoice[]) =>
+    [...group].sort((a, b) => {
+      const aEn = a.lang.toLowerCase().startsWith("en") ? 0 : 1;
+      const bEn = b.lang.toLowerCase().startsWith("en") ? 0 : 1;
+      if (aEn !== bEn) return aEn - bEn;
+      return a.name.localeCompare(b.name);
+    });
+
+  const groups: VoiceGroup[] = [
+    { gender: "female", label: "Female voices", voices: sortGroup(byGender.female) },
+    { gender: "male", label: "Male voices", voices: sortGroup(byGender.male) },
+    { gender: "unspecified", label: "Other voices", voices: sortGroup(byGender.unspecified) },
+  ];
+  return groups.filter((g) => g.voices.length > 0);
+}
+
 export type VoiceStyleKey = "neutral" | "soft" | "persuasive" | "harsh" | "bossy";
 
 export interface VoiceStyleOption {
