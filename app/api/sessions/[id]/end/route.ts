@@ -37,6 +37,13 @@ export async function POST(
         (existingFeedback.gradedTurnCount !== undefined &&
           existingFeedback.gradedTurnCount !== session.turns.length));
     if (!staleFromPause) {
+      // The grade is reused, but the session still has to close: ending
+      // right after a pause (nothing said since) used to return here with
+      // endedAt never set, leaving the session open forever.
+      if (!session.endedAt) {
+        session.endedAt = Date.now();
+        await saveSession(session);
+      }
       return NextResponse.json({ feedback: existingFeedback });
     }
   }

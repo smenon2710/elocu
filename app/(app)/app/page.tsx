@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DocSlot } from "@/app/components/DocSlot";
+import { useVoiceSettings } from "@/lib/useVoiceSettings";
+import { getVoiceStyle, groupSelectableVoices } from "@/lib/voiceCategories";
 import {
   DEFAULT_PITCH_TIME_LIMIT_SEC,
   PITCH_TIME_LIMITS_SEC,
@@ -156,6 +159,15 @@ export default function HomePage() {
   const [addingNewGoal, setAddingNewGoal] = useState(false);
   const [newGoalName, setNewGoalName] = useState("");
 
+  // Who the AI sounds like, chosen before the session rather than during
+  // it. Female/Male picks the first curated voice of that gender; the full
+  // list, delivery styles, and samples are on /app/voice.
+  const voice = useVoiceSettings();
+  const voiceGroups = groupSelectableVoices(voice.voices);
+  const genderChoices = voiceGroups.filter((g) => g.gender !== "unspecified");
+  const currentVoice = voiceGroups.flatMap((g) => g.voices).find((v) => v.voiceURI === voice.voiceURI) ?? null;
+  const currentGender = voiceGroups.find((g) => g.voices.some((v) => v.voiceURI === voice.voiceURI))?.gender ?? null;
+
   const config = MODE_CONFIG[mode];
   const canStart = config.topicOptional || topic.trim().length > 0;
   // Only Interview mode has a real use for a job description/resume/question
@@ -268,6 +280,42 @@ export default function HomePage() {
               {formatLimit(sec)}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Rendered only once the browser has reported its voices — the saved
+          choice lives in localStorage, which the server render can't see. */}
+      {voice.voices.length > 0 && (
+        <div className="mt-6">
+          <span className="font-mono text-xs tracking-wide text-parchment-500 uppercase">
+            {mode === "debate" ? "Your opponent's voice" : "AI voice"}
+          </span>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {genderChoices.map((g) => (
+              <button
+                key={g.gender}
+                type="button"
+                onClick={() => voice.setVoiceURI(g.voices[0].voiceURI)}
+                aria-pressed={currentGender === g.gender}
+                className={`rounded-full border px-3 py-1 font-mono text-xs transition ${
+                  currentGender === g.gender
+                    ? "border-ember-500 bg-ember-500/10 text-ember-400"
+                    : "border-hairline text-parchment-500 hover:border-verdigris-500/50"
+                }`}
+              >
+                {g.gender === "female" ? "Female" : "Male"}
+              </button>
+            ))}
+            <span className="font-mono text-xs text-parchment-500">
+              {currentVoice ? currentVoice.name : "Browser default"} · {getVoiceStyle(voice.voiceStyle).label} style
+            </span>
+            <Link
+              href="/app/voice"
+              className="font-mono text-xs text-verdigris-400 underline decoration-verdigris-500/40 underline-offset-2 hover:text-verdigris-300"
+            >
+              Hear samples &amp; change
+            </Link>
+          </div>
         </div>
       )}
 

@@ -65,20 +65,41 @@ export async function getSessionParseFailures(sessionId: string): Promise<ParseF
 // catch gracefully, which is the real reason it's an acceptable choice
 // again rather than a repeat of the original mistake. Fallback chain
 // unchanged: OpenRouter/Gemma, then local Ollama/llama3.2.
+//
+// maxTokens + reasoningEffort: gpt-oss-20b is a reasoning model, and its
+// hidden reasoning comes out of the same output-token budget as the answer.
+// With no limit set, a real 17-turn debate hit the provider's 2,048-token
+// default on every attempt — ~1,500 tokens of reasoning, then the JSON cut
+// off mid-section ("response was not valid JSON"), or no answer at all
+// ("no message content"). Low reasoning effort leaves the budget for the
+// answer, and the explicit ceiling is sized for six sections with room to
+// spare (a full answer is ~600 tokens).
+const GRADING_MAX_TOKENS = 3000;
 const GRADING_PRIMARY: ModelChoice = {
   provider: "groq",
   model: process.env.GROQ_MODEL_GRADING || "openai/gpt-oss-20b",
+  maxTokens: GRADING_MAX_TOKENS,
+  reasoningEffort: "low",
 };
 const GRADING_FALLBACKS: ModelChoice[] = [
   {
     provider: "openrouter",
     model: process.env.OPENROUTER_MODEL_GRADING || "google/gemma-4-26b-a4b-it:free",
+    maxTokens: GRADING_MAX_TOKENS,
   },
   {
     provider: "ollama",
     model: process.env.OLLAMA_MODEL_GRADING || "llama3.2",
+    maxTokens: GRADING_MAX_TOKENS,
   },
 ];
+
+// Grading runs right after the last conversation turn, so on a low
+// per-minute token limit it is the call most likely to be told "retry in a
+// few seconds". The user is already waiting on a feedback screen; sitting
+// that out beats handing back placeholder scores. Bounded so the wait, plus
+// the calls either side of it, stays inside the routes' maxDuration (120s).
+const GRADING_RATE_LIMIT_WAIT_MS = 30_000;
 
 type SectionKey = "structure" | "delivery" | "content" | "engagement" | "contextFit" | "argumentation";
 
@@ -315,7 +336,8 @@ ${interviewStructureNote(session)}
 
 Score the USER's performance on each section below, on an integer scale of 1
 (needs significant work) to 5 (excellent). For each section, quote exactly one
-short verbatim moment from a USER turn with its turn index, and give one
+short verbatim moment from a USER turn with its turn index — a single phrase or
+sentence of at most 25 words, copied exactly, never a whole turn — and give one
 concrete, specific fix — never generic advice like "be more concise". Name the
 exact sentence or phrase and what to do instead.
 
@@ -344,6 +366,8 @@ export async function gradeSession(session: Session): Promise<Feedback> {
       timeoutMs: 45000,
       label: "grading",
       sessionId: session.id,
+      rejectTruncated: true,
+      rateLimitWaitMs: GRADING_RATE_LIMIT_WAIT_MS,
       primary: GRADING_PRIMARY,
       fallbacks: GRADING_FALLBACKS,
     });

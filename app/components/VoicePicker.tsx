@@ -1,6 +1,6 @@
 "use client";
 
-import { guessVoiceGender, selectableVoices, VOICE_STYLES, type VoiceStyleKey } from "@/lib/voiceCategories";
+import { groupSelectableVoices, VOICE_STYLES, type VoiceStyleKey } from "@/lib/voiceCategories";
 
 /**
  * Lets the user pick which browser TTS voice AI replies are spoken in, and
@@ -38,24 +38,7 @@ export function VoicePicker({
   // Only ever offer the small curated set, or a short English fallback on a
   // device with none of them (lib/voiceCategories.ts's selectableVoices —
   // the same list speak() accepts, so whatever's picked here is honored).
-  const effectiveVoices = selectableVoices(voices);
-
-  const byGender = { female: [] as SpeechSynthesisVoice[], male: [] as SpeechSynthesisVoice[], unspecified: [] as SpeechSynthesisVoice[] };
-  for (const v of effectiveVoices) byGender[guessVoiceGender(v)].push(v);
-
-  const sortGroup = (group: SpeechSynthesisVoice[]) =>
-    [...group].sort((a, b) => {
-      const aEn = a.lang.toLowerCase().startsWith("en") ? 0 : 1;
-      const bEn = b.lang.toLowerCase().startsWith("en") ? 0 : 1;
-      if (aEn !== bEn) return aEn - bEn;
-      return a.name.localeCompare(b.name);
-    });
-
-  const groups: { label: string; voices: SpeechSynthesisVoice[] }[] = [
-    { label: "Female voices", voices: sortGroup(byGender.female) },
-    { label: "Male voices", voices: sortGroup(byGender.male) },
-    { label: "Other voices", voices: sortGroup(byGender.unspecified) },
-  ].filter((g) => g.voices.length > 0);
+  const groups = groupSelectableVoices(voices);
 
   const firstVoiceURI = groups[0]?.voices[0]?.voiceURI ?? "";
 

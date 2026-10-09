@@ -6,8 +6,11 @@ import { usePathname } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
 import { HistoryList } from "@/app/components/HistorySidebar";
 
+// `wideOnly` links are dropped at phone width, where the nav has no room
+// for another item — Voice is also linked from the start page.
 const NAV_LINKS = [
   { href: "/app/insights", label: "Insights" },
+  { href: "/app/voice", label: "Voice", wideOnly: true },
   { href: "/app", label: "New session" },
 ];
 
@@ -88,7 +91,9 @@ export function Header() {
               key={link.href}
               href={link.href}
               aria-current={active ? "page" : undefined}
-              className={`transition ${active ? "text-ember-400" : "text-parchment-500 hover:text-verdigris-400"}`}
+              className={`transition ${link.wideOnly ? "hidden sm:inline" : ""} ${
+                active ? "text-ember-400" : "text-parchment-500 hover:text-verdigris-400"
+              }`}
             >
               {link.label}
             </Link>

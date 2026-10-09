@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { getVoiceStyle, selectableVoices, type VoiceStyleKey } from "./voiceCategories";
+import { buildUtterance, useVoiceSettings } from "./useVoiceSettings";
 
 // The Web Speech API has no official TS lib.dom types yet — minimal ambient
 // shapes for just what this hook uses.
@@ -39,12 +39,6 @@ const noopSubscribe = () => () => {};
 const getSupportedSnapshot = () => getSpeechRecognitionCtor() !== null && "speechSynthesis" in window;
 const getSupportedServerSnapshot = () => false;
 
-// Which TTS voice (and delivery style) to speak AI replies in — a
-// device/browser preference, not app data, so it lives in localStorage
-// rather than the session store.
-const VOICE_STORAGE_KEY = "elocu-voice-uri";
-const VOICE_STYLE_STORAGE_KEY = "elocu-voice-style";
-
 // Recognition errors that won't fix themselves by restarting — permission
 // denied, no microphone, or the recognizer service being unavailable.
 // Everything else ("no-speech", "network" blips, "aborted") is transient and
@@ -77,18 +71,9 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
   const [micError, setMicError] = useState<string | null>(null);
   const supported = useSyncExternalStore(noopSubscribe, getSupportedSnapshot, getSupportedServerSnapshot);
 
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  // Lazy initializer (not an effect) since localStorage is a synchronous
-  // read — nothing renders differently based on this before `voices` itself
-  // populates post-hydration (see the effect below), so there's no
-  // server/client mismatch risk from reading it up front.
-  const [voiceURI, setVoiceURIState] = useState<string | null>(() =>
-    typeof window === "undefined" ? null : localStorage.getItem(VOICE_STORAGE_KEY)
-  );
-  const [voiceStyle, setVoiceStyleState] = useState<VoiceStyleKey>(() => {
-    if (typeof window === "undefined") return "neutral";
-    return (localStorage.getItem(VOICE_STYLE_STORAGE_KEY) as VoiceStyleKey | null) ?? "neutral";
-  });
+  // Which voice and delivery style replies are spoken in — shared with the
+  // Voice settings page and the start page (lib/useVoiceSettings.ts).
+  const { voices, voiceURI, setVoiceURI, voiceStyle, setVoiceStyle } = useVoiceSettings();
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const finalBufferRef = useRef("");
@@ -103,33 +88,6 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
   useEffect(() => {
     onFinalRef.current = onFinalTranscript;
   }, [onFinalTranscript]);
-
-  // Voice list loads asynchronously in most browsers — an initial
-  // getVoices() call is frequently empty, populated later via the
-  // voiceschanged event, hence both here rather than just one.
-  useEffect(() => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-
-    function loadVoices() {
-      setVoices(window.speechSynthesis.getVoices());
-    }
-    loadVoices();
-    window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
-    return () => window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
-  }, []);
-
-  const setVoiceURI = useCallback((uri: string | null) => {
-    setVoiceURIState(uri);
-    if (typeof window === "undefined") return;
-    if (uri) localStorage.setItem(VOICE_STORAGE_KEY, uri);
-    else localStorage.removeItem(VOICE_STORAGE_KEY);
-  }, []);
-
-  const setVoiceStyle = useCallback((style: VoiceStyleKey) => {
-    setVoiceStyleState(style);
-    if (typeof window === "undefined") return;
-    localStorage.setItem(VOICE_STYLE_STORAGE_KEY, style);
-  }, []);
 
   // Builds one recognizer instance wired for the accumulate-until-stopped
   // model.
@@ -277,21 +235,7 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
           return;
         }
         window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        if (voiceURI) {
-          // Only ever matches within the curated set (lib/voiceCategories.ts)
-          // — a stale voiceURI pointing at a novelty/effect voice (or one no
-          // longer installed) simply won't match here, so it can never
-          // actually be spoken, even if it's still sitting in localStorage
-          // from before curation existed. Falls through to the browser's
-          // own default voice in that case, not an explicit request for
-          // whatever the bad voice was.
-          const match = selectableVoices(window.speechSynthesis.getVoices()).find((v) => v.voiceURI === voiceURI);
-          if (match) utterance.voice = match;
-        }
-        const style = getVoiceStyle(voiceStyle);
-        utterance.pitch = style.pitch;
-        utterance.rate = style.rate;
+        const utterance = buildUtterance(text, voiceURI, voiceStyle);
         let started = false;
         let settled = false;
         const settle = (played: boolean) => {
