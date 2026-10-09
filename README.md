@@ -124,19 +124,25 @@ Elocu calls out to an LLM for two things: the live conversation loop and the pos
 pass (`lib/conversation.ts`, `lib/grading.ts`, both going through `lib/llm.ts`). Each has its own
 **primary → fallback → fallback** chain, tried in order, stopping at the first success:
 
-1. **Groq** (primary) — get a key at https://console.groq.com/keys. Primary for both use cases:
-   speed via custom inference hardware matters for the live conversation *and* for grading, since
-   the browser waits on the pause/end request before showing feedback.
-2. **OpenRouter** (fallback) — get a key at https://openrouter.ai/keys. Used only if Groq fails for
-   any reason (missing key, timeout, bad response).
-3. **Ollama, local** (fallback) — optional. If you have [Ollama](https://ollama.com) running
+| | Primary | Fallback | Last resort |
+|---|---|---|---|
+| Conversation | Groq `openai/gpt-oss-20b` | OpenRouter (free Gemma) | Ollama |
+| Grading | OpenRouter `anthropic/claude-haiku-5.5` | Groq `openai/gpt-oss-20b` | Ollama |
+
+- **Groq** — get a key at https://console.groq.com/keys. Fastest (~1s), which is what the live
+  conversation needs. Its free tier allows 8,000 tokens a minute; grading waits out a short
+  rate-limit once rather than failing.
+- **OpenRouter** — get a key at https://openrouter.ai/keys. Grading uses a paid model there (about
+  a tenth of a cent per graded session, ~8s), chosen for feedback quality over speed — see
+  `plan.md` §52 for the comparison. The account needs credit; without it grading falls back to Groq.
+- **Ollama, local** — optional. If you have [Ollama](https://ollama.com) running
    locally with a model pulled (`ollama pull llama3.2` is the one benchmarked and wired in by
    default), it's used as a last resort if both of the above fail. No API key needed. Free, fully
    private, no network dependency — but noticeably slower than the hosted options, which is why
    it's last in the chain, not first.
 
-You technically only need Groq to run the app — OpenRouter and Ollama are safety nets, not
-requirements. See `.env.example` for all the model-override env vars
+You technically only need Groq to run the app — without OpenRouter, grading simply uses its Groq
+fallback. See `.env.example` for all the model-override env vars
 (`GROQ_MODEL_CONVERSATION`, `OPENROUTER_MODEL_GRADING`, etc.) if you want to point any tier at a
 different model.
 
@@ -252,6 +258,10 @@ dashboard (Storage → Neon, accept terms, connect to the project); `vercel env 
 - **`lib/store.ts`** — persistence, on Postgres (`lib/db/schema.ts`). Every function takes the
   caller's user id (from `lib/auth.ts`'s `getCurrentUserId()`) and filters on it; a row owned by
   someone else reads as not found and can't be overwritten or deleted.
+- **Voice settings** (`/app/voice`, `lib/useVoiceSettings.ts`) — pick the AI's voice (female/male,
+  from the curated set) and delivery style up front, each with a spoken sample; the start page has
+  a quick Female / Male choice. Saved in `localStorage`; the session page's picker remains as a
+  mid-session override.
 - **`lib/useSpeech.ts`** — browser Web Speech API wrapper. Push-to-talk-until-you're-done: the mic
   stays open across pauses (not silence-triggered), tapping it again is how you signal "I'm done."
   A finished spoken turn then lands in an editable **review box** before it's sent

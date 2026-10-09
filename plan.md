@@ -1848,3 +1848,56 @@ Fixed both ways:
   account) so the tester wasn't emailed again.
 
 README "Deployment" rewritten accordingly; §50's "home URL" advice is superseded by this section.
+
+---
+
+## 52. Grading that actually returns: truncation, Haiku 5.5, end-after-pause, voice settings
+
+Found by the owner debating on the live site (2026-10-09): a 17-turn debate came back with
+placeholder scores, and "Retry grading" kept failing.
+
+**Why grading failed** (from that session's `llm_call_logs` / `grading_failures` rows):
+- `openai/gpt-oss-20b` is a reasoning model and no output limit was sent, so Groq's 2,048-token
+  default applied — and ~1,500 of it went to hidden reasoning. The JSON was cut off mid-section
+  ("response was not valid JSON"), or never started ("no message content"). `completion_tokens` was
+  exactly 2,048 on both parse failures.
+- Each retry then hit Groq's free-tier limit of 8,000 tokens a minute (one grading call reserves
+  ~5,200), and the free OpenRouter Gemma fallback was rate-limited upstream on every attempt.
+
+**Fixes in `lib/llm.ts` / `lib/grading.ts`**
+- `ModelChoice` takes `maxTokens` and `reasoningEffort` (the latter only sent to Groq gpt-oss
+  models). Grading sets both.
+- `rejectTruncated`: an answer with `finish_reason: "length"` is a failure for grading (and is
+  logged as cut off, not as bad JSON).
+- `rateLimitWaitMs`: if the whole chain fails and a provider's 429 carried a `Retry-After` within
+  30s, wait and try that provider once more. Verified live: forced limit → waited 25.5s → graded.
+- The prompt asks for a quote of at most 25 words (the model had been copying whole turns).
+
+**Model comparison.** Six real sessions (two debates, interview, conversation, pitch, orator), one
+run each, through the app's own prompt and validation:
+
+| Model | Graded | Valid quotes | Avg time | Cost/grade |
+|---|---|---|---|---|
+| Groq gpt-oss-20b (with the fixes) | 5/6 | 15/23 | 1.0s | free tier |
+| DeepSeek V4.1 Flash | 0/6 | — | 17s | $0.0025 |
+| DeepSeek V4.1 Flash, low reasoning | 3/6 | 10/12 | 15s | $0.0025 |
+| Claude Haiku 5.5 | 6/6 | 27/27 | 8.3s | $0.0011 |
+| Gemma 4 26B (paid) | 6/6 | 20/27 | 6.2s | $0.0003 |
+
+DeepSeek spent its whole 3,000-token budget reasoning. Haiku's fixes were also the most specific
+(it names the opponent's figure to rebut and gives the sentence to say). Cost is not a factor at
+this volume. **Decision: Haiku 5.5 via OpenRouter is the grading primary, Groq gpt-oss-20b the
+fallback**; conversation stays Groq-first. Small sample — re-check as beta transcripts accumulate.
+`OPENROUTER_MODEL_GRADING` must not still point at the free Gemma model (it did, locally and on
+Vercel).
+
+**End after pause.** `/end` returned the cached grade early when nothing had been said since a
+pause — before `endedAt` was set, so the session never closed. It now closes it first.
+
+**Voice, chosen up front.** Requested: debate against a male or female voice, and pick the style
+on its own page with samples instead of mid-session. `/app/voice` lists the curated voices by
+guessed gender plus the five delivery styles; choosing one plays a sample in exactly that
+combination. The start page gets a Female / Male choice ("Your opponent's voice" in Debate). The
+preference moved from `lib/useSpeech.ts` into a shared `lib/useVoiceSettings.ts`; the curated list
+is unchanged (§39), and the in-session picker stays as an override. Not yet clicked through in a
+browser.
