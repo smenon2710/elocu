@@ -2,10 +2,8 @@
 
 import { use, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { VoicePicker } from "@/app/components/VoicePicker";
 import { useSpeech } from "@/lib/useSpeech";
 import { MAX_EXCHANGES_BY_MODE, type SessionMode } from "@/lib/types";
-import type { VoiceStyleKey } from "@/lib/voiceCategories";
 
 type Turn = { speaker: "user" | "ai"; text: string };
 
@@ -245,32 +243,21 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     router.push(`/session/${id}/feedback`);
   }
 
-  // Previews a voice/style change against the actual most recent AI line
-  // (not a generic sample phrase) whenever it's safe to interrupt — hearing
-  // the persona's real words is what tells you whether the choice actually
-  // fits, a generic "hello, this is my voice" doesn't.
-  function previewIfSafe() {
+  // Plays the most recent AI line again, whenever it's safe to interrupt —
+  // the "Replay" / "Tap to hear" button. (Voice and delivery style are chosen
+  // before the session, on /app/voice — there's no picker here.)
+  function replayLastReply() {
     if (sending || ended || pausing || speech.state === "listening" || speech.state === "thinking") return;
     const lastAiTurn = [...turns].reverse().find((t) => t.speaker === "ai");
     if (!lastAiTurn) return;
     // speak() leaves state at "speaking" for its caller to move on from — the
     // turn loop does that by starting to listen, but a standalone playback
     // has to hand the floor back itself, or the mic stays disabled under a
-    // stale "Speaking…" (this used to happen after every voice preview).
+    // stale "Speaking…".
     speech.speak(lastAiTurn.text).then((played) => {
       if (played) setAudioBlocked(false);
       speech.setState((s) => (s === "speaking" ? "idle" : s));
     });
-  }
-
-  function handleVoiceChange(uri: string) {
-    speech.setVoiceURI(uri);
-    previewIfSafe();
-  }
-
-  function handleStyleChange(style: VoiceStyleKey) {
-    speech.setVoiceStyle(style);
-    previewIfSafe();
   }
 
   // Send the reviewed transcript, carrying the speaking duration captured
@@ -356,7 +343,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
                 {i === lastAiIndex && speech.supported && (
                   <button
                     type="button"
-                    onClick={previewIfSafe}
+                    onClick={replayLastReply}
                     disabled={!canReplay}
                     className={`font-mono text-[11px] tracking-wide uppercase transition disabled:opacity-40 ${
                       audioBlocked ? "text-ember-400 hover:text-ember-300" : "text-parchment-500 hover:text-verdigris-400"
@@ -388,18 +375,6 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       )}
 
       <div className="mt-4 flex flex-col gap-3">
-        {speech.supported && speech.voices.length > 0 && (
-          <div className="flex justify-center">
-            <VoicePicker
-              voices={speech.voices}
-              voiceURI={speech.voiceURI}
-              onVoiceChange={handleVoiceChange}
-              voiceStyle={speech.voiceStyle}
-              onStyleChange={handleStyleChange}
-            />
-          </div>
-        )}
-
         {showPitchClock && (
           <p
             className={`text-center font-mono text-sm tabular-nums ${

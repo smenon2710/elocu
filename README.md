@@ -12,8 +12,8 @@ flows from there — sessions, feedback, call logs).
 See `plan.md` for the full design rationale and decision history (why things are built the way
 they are, bugs found along the way, and what was tried and rejected). This README is the practical
 "how do I run and use this" doc. See `saas-plan.md` for the plan to turn this into a multi-tenant,
-paid product — Postgres storage and Clerk sign-in are built (`plan.md` §44–45); billing, rate
-limits, and the production deploy are next.
+paid product — Postgres storage, Clerk sign-in, rate limits, and the private-beta deploy are done
+(`plan.md` §44–47); a custom domain and billing are next.
 
 ## Modes
 
@@ -260,17 +260,15 @@ dashboard (Storage → Neon, accept terms, connect to the project); `vercel env 
   someone else reads as not found and can't be overwritten or deleted.
 - **Voice settings** (`/app/voice`, `lib/useVoiceSettings.ts`) — pick the AI's voice (female/male,
   from the curated set) and delivery style up front, each with a spoken sample; the start page has
-  a quick Female / Male choice. Saved in `localStorage`; the session page's picker remains as a
-  mid-session override.
+  a quick Female / Male choice. Saved in `localStorage`. The session page has no picker.
 - **`lib/useSpeech.ts`** — browser Web Speech API wrapper. Push-to-talk-until-you're-done: the mic
   stays open across pauses (not silence-triggered), tapping it again is how you signal "I'm done."
   A finished spoken turn then lands in an editable **review box** before it's sent
   (`app/(app)/session/[id]/page.tsx`), so a mis-heard word or dropped phrase can be corrected before
   it's quoted back and counted toward the delivery/content metrics — the real speaking duration is
   captured at the moment the mic stops, so time spent reviewing never skews pace or pitch timing.
-  Also exposes TTS voices and a delivery-style preset (Neutral/Soft/Persuasive/Harsh/Bossy, via
-  pitch/rate) — `app/components/VoicePicker.tsx` on the session page lets you pick both, persisted in
-  `localStorage`. Voices are grouped by a best-effort gender guess from the voice name
+  Replies are spoken in the voice and delivery-style preset (Neutral/Soft/Persuasive/Harsh/Bossy,
+  via pitch/rate) chosen on the Voice settings page, persisted in `localStorage`. Voices are grouped by a best-effort gender guess from the voice name
   (`lib/voiceCategories.ts`) — the Web Speech API exposes no gender/personality field at all — and
   restricted to a small cross-platform curated allowlist (`isCuratedVoice()`) rather than every voice
   the OS happens to expose (macOS alone can list ~180, including novelty/effect voices like Zarvox or

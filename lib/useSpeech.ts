@@ -71,9 +71,9 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
   const [micError, setMicError] = useState<string | null>(null);
   const supported = useSyncExternalStore(noopSubscribe, getSupportedSnapshot, getSupportedServerSnapshot);
 
-  // Which voice and delivery style replies are spoken in — shared with the
-  // Voice settings page and the start page (lib/useVoiceSettings.ts).
-  const { voices, voiceURI, setVoiceURI, voiceStyle, setVoiceStyle } = useVoiceSettings();
+  // Which voice and delivery style replies are spoken in — chosen on the
+  // Voice settings page or the start page (lib/useVoiceSettings.ts).
+  const { voiceURI, voiceStyle } = useVoiceSettings();
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const finalBufferRef = useRef("");
@@ -285,10 +285,5 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
     startListening,
     stopListening,
     speak,
-    voices,
-    voiceURI,
-    setVoiceURI,
-    voiceStyle,
-    setVoiceStyle,
   };
 }

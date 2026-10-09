@@ -67,8 +67,8 @@ const FALLBACK_VOICE_LIMIT = 6;
 
 /**
  * The voices a user can actually pick AND be spoken in — one function shared
- * by the picker (app/components/VoicePicker.tsx) and lib/useSpeech.ts's
- * speak(), so the two can never disagree. (They used to: on a device with no
+ * by the Voice settings page (app/(app)/app/voice/page.tsx) and
+ * lib/useVoiceSettings.ts's buildUtterance(), so the two can never disagree. (They used to: on a device with no
  * curated voice the picker fell back to the raw list, but speak() only
  * accepted curated voices, so any voice picked there was silently ignored.)
  */
@@ -125,8 +125,8 @@ export interface VoiceGroup {
 
 /**
  * The selectable voices grouped by guessed gender (empty groups dropped),
- * English first then by name — one ordering shared by the in-session picker,
- * the Voice settings page, and the start page's female/male choice, so "the
+ * English first then by name — one ordering shared by the Voice settings
+ * page and the start page's female/male choice, so "the
  * first female voice" means the same voice everywhere.
  */
 export function groupSelectableVoices(voices: SpeechSynthesisVoice[]): VoiceGroup[] {

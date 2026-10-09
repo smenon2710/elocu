@@ -20,8 +20,9 @@ const SAMPLE_LINE = "I'll take the other side of that. Here's my first objection
  * like (a female or male voice from the small curated set — see
  * lib/voiceCategories.ts) and how it delivers (the pitch/rate presets), each
  * with a sample played in exactly the combination a session would use.
- * Choosing something plays it. Saved to this device (lib/useVoiceSettings.ts);
- * the session page's own picker stays as a quick mid-session override.
+ * Choosing something plays it. Saved to this device (lib/useVoiceSettings.ts).
+ * This page and the start page's Female / Male choice are the only places
+ * the voice is set — the session page has no picker.
  */
 export default function VoiceSettingsPage() {
   const { voices, voiceURI, setVoiceURI, voiceStyle, setVoiceStyle } = useVoiceSettings();

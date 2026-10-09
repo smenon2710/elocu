@@ -1899,5 +1899,6 @@ on its own page with samples instead of mid-session. `/app/voice` lists the cura
 guessed gender plus the five delivery styles; choosing one plays a sample in exactly that
 combination. The start page gets a Female / Male choice ("Your opponent's voice" in Debate). The
 preference moved from `lib/useSpeech.ts` into a shared `lib/useVoiceSettings.ts`; the curated list
-is unchanged (§39), and the in-session picker stays as an override. Not yet clicked through in a
-browser.
+is unchanged (§39). The in-session picker stayed at first as an override and was then removed at
+the owner's request (`app/components/VoicePicker.tsx` deleted) — voice is set before a session, not
+during it.
