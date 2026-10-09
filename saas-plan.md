@@ -369,3 +369,12 @@ Phase 0 (`plan.md` §44), Phase 1 sign-in (`plan.md` §45), and the private-beta
 3. **A custom domain** — needed for Clerk production keys (drops the "Development mode" badge and
    the dev instance's limits) and settles the naming question in §9.2.
 4. Target-user and B2B answers, then Phase 2 (billing).
+
+**Update 2026-10-09** (`plan.md` §52–53, `review.md` §7): grading now runs on a paid model — Claude
+Haiku 5.5 via OpenRouter, about a tenth of a cent per graded session — after the free options
+proved unreliable; the owner has decided **nothing else moves to a paid tier for now**. That leaves
+one known limit on step 1: the live conversation shares Groq's free 8,000 tokens a minute across
+all users, so a handful of testers talking at once will hit it. Keep an eye on OpenRouter credit
+(about $3 left on 2026-10-09) — when it runs out, grading falls back to Groq and Context Fit goes
+back to being graded without the attached documents. Token use is now ~10,000 per session (16
+sessions), up from the ~7,400 measured in §9.1.

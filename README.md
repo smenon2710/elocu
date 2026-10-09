@@ -28,7 +28,7 @@ paid product — Postgres storage, Clerk sign-in, rate limits, and the private-b
 
 Interview mode is the only one with document upload (job description / resume / question list,
 multiple per category, paste or file) — attach as many as you want, it folds them all into the
-interviewer's context.
+interviewer's context, and the grader reads them too when scoring Context Fit.
 
 ## Practicing the same thing over and over
 
@@ -228,15 +228,21 @@ dashboard (Storage → Neon, accept terms, connect to the project); `vercel env 
 - **`lib/llm.ts`** — provider-agnostic chat-completion wrapper (Groq/OpenRouter/Ollama are all
   OpenAI-compatible APIs, so one implementation covers all three) with automatic fallback chaining,
   a 45s per-call timeout that guards the *whole* round trip (not just headers), and structured
-  local logging.
+  logging. A model choice can carry an output-token ceiling and a reasoning effort; callers can
+  reject an answer cut off at that ceiling, and wait out a short provider rate limit once.
 - **`lib/persona.ts`** — builds the system prompt per mode; same engine, different prompt/rubric
-  inputs depending on mode and whether documents were attached.
+  inputs depending on mode and whether documents were attached. The debate opponent is told it
+  can't look anything up: it argues from reasoning and must not state statistics, studies, or
+  named sources as fact (it used to invent them — `plan.md` §53).
 - **`lib/conversation.ts`** — the live turn-taking loop. Fully decoupled from grading, which runs
   as a separate call after the session ends (or is paused) — the conversation stays fast, grading
   can afford to be more careful.
 - **`lib/grading.ts`** — rubric-driven structured JSON output, with `validateQuotedMoment()`
   guarding against a model quoting the wrong speaker (verified this happens in practice — the
-  guard strips just the bad quote, keeps the score/fix). Every turn now carries its *real* elapsed
+  guard strips just the bad quote, keeps the score/fix). When documents were attached, they're
+  included in the grading prompt so Context Fit is judged against the actual job description and
+  resume; if that larger prompt gets no usable answer, grading runs once more from the transcript
+  alone. Every turn now carries its *real* elapsed
   duration (see below), and for Pitch mode that real duration is handed to the grading prompt as
   objective pacing data (target vs. actual time, words/minute) so the Delivery fix can say "you ran
   12 seconds over" instead of guessing pace from word choice alone.

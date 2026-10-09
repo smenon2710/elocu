@@ -45,6 +45,10 @@ opening its URL in the phone's browser.
 > **Batch 3 (2026-09-30)** — item 1 (mobile), plus mic-denial, iOS TTS,
 > tooltip touch/association, auto-end warning, feedback headline score. See
 > `plan.md` §43.
+> **Batch 4 (2026-10-09)** — grading truncation, Haiku 5.5 for grading,
+> end-after-pause, voice settings page; then the invented-statistics and
+> blind Context Fit findings from the second pass below. See `plan.md`
+> §52–53.
 > Individual findings below are annotated _(done)_ where addressed.
 
 ---
@@ -274,3 +278,72 @@ Mostly known and covered by `saas-plan.md`:
   and 300/day, `lib/rateLimit.ts`, `plan.md` §47.)_
 - Passing `user: sessionId` to providers for abuse tracing (`llm.ts:133`) is
   good practice — keep it.
+
+---
+
+## 7. Second pass — 2026-10-09
+
+**Method:** full read of the code again after the Postgres/Clerk/deploy work,
+plus the 16 sessions and call logs in the production database. Not exercised
+in a browser. Ordered by what a beta tester would notice first.
+
+### Wrong today
+
+- **The debate opponent invented statistics.** _(done — `plan.md` §53.)_ 16 of
+  34 opponent turns in the real debates cited a percentage or a named report.
+- **Context Fit was graded without the documents.** _(done — `plan.md` §53.)_
+- **The browser speech recogniser distorts what gets graded.** Across 56
+  spoken user turns (4,902 words) in production there is no punctuation at
+  all, no "?" and no "um"/"uh". So: question rate (`conversationMetrics.ts`
+  counts "?") reads 0% for spoken turns; the filler count misses every vocal
+  filler; and the grader gives "break up the run-on sentence" advice about
+  missing punctuation. Real fix: server-side transcription with word
+  timestamps. Cheap interim: tell the grader the transcript is unpunctuated
+  speech, and hide question rate for spoken turns.
+- **Pace measures time holding the floor, not time speaking.** The clock
+  starts when the AI's line ends, so thinking pauses — and typed answers —
+  count as speech. Word timestamps would fix this too; at minimum, leave
+  typed turns out of words-per-minute.
+- **The live conversation won't survive concurrent users on free tiers.**
+  Groq's free tier is 8,000 tokens a minute across everyone (a late debate
+  turn is ~2,800), and the conversation fallback is the free Gemma model that
+  was rate-limited on every attempt on record. Deferred: the owner is not
+  moving anything else to a paid tier for now. Setting low reasoning effort
+  on conversation calls would stretch the free limit (most output tokens are
+  hidden reasoning).
+- **Debate replies run long and use Markdown.** Often well past the persona's
+  "1–4 sentences", sometimes with bold headings the browser voice reads aloud.
+
+### The practice loop
+
+- **No "try again".** Feedback ends at "Start a new session", dropping topic,
+  mode and goal. A one-click retry of the same thing is the core loop.
+- **No transcript on the feedback page** (still open from §1) — quotes have no
+  context and nothing can be read back or copied.
+- **"Focus next" names a weakness and stops.** A "practice this" action that
+  starts a short session aimed at that one section would give a reason to
+  return.
+- **Debate/interview difficulty** (easy / standard / tough) — `plan.md` §22.
+
+### Before more testers
+
+- **The beta has one account.** The single invitation has been pending since
+  2026-09-30.
+- **The landing page dead-ends:** "Start talking" leads to an invite-only
+  sign-in with no way to request access.
+- **No privacy policy or terms**, with resumes and spoken content going to
+  third-party model providers.
+- **No first-run guidance** — mic flow, browser support, the review step.
+- **Nothing alerts on failures.** The grading outage was found by the owner
+  hitting it. Still no tests or CI (§5).
+
+### Polish
+
+- Scores average 2.6/5 across 16 sessions; score anchors in the grading prompt
+  ("3 = competent") would make them easier to trust.
+- No Open Graph image/description for shared links (§3).
+- The Voice page is reachable only from the start page at phone width.
+- **Unverified in production:** no session has been graded there since Haiku
+  5.5 became the grading model (the H1B session's successful grade predates
+  the deploy). The next finished session's call log should show
+  `anthropic/claude-haiku-5.5`.
