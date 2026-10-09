@@ -4,7 +4,7 @@ import { computeConversationMetrics } from "./conversationMetrics";
 import { computeDeliveryMetrics } from "./deliveryMetrics";
 import { db, schema } from "./db";
 import { chatCompletion, parseJsonObject, type ModelChoice } from "./llm";
-import type { Feedback, FeedbackSection, FeedbackSections, QuotedMoment, Session } from "./types";
+import type { DocumentKind, Feedback, FeedbackSection, FeedbackSections, QuotedMoment, Session } from "./types";
 
 /**
  * The one thing lib/llm.ts's call log can't tell you: WHY a successful call
@@ -267,6 +267,47 @@ Result? Name in the fix which STAR component was weakest or missing, not a
 generic structure comment.`;
 }
 
+// Total document text handed to the grader. Uploads are already capped per
+// document (lib/documents.ts); this bounds the sum, at roughly 10k tokens.
+const GRADING_DOCS_MAX_CHARS = 40_000;
+
+const DOC_KIND_LABELS: Record<DocumentKind, string> = {
+  job_description: "Job description",
+  resume: "Candidate's resume",
+  question_list: "Question bank the interviewer drew from",
+  other: "Additional context",
+};
+
+/**
+ * The attached job description / resume / question bank, for the Context Fit
+ * section. Without this the grader was scoring "alignment with the provided
+ * job description/resume" from the transcript alone — it had never seen
+ * either document, so the score was a guess. Job description and resume come
+ * first so they survive if the total has to be cut.
+ */
+function documentsBlock(session: Session): string {
+  if (!session.documentsUsed || session.documentRefs.length === 0) return "";
+  const order: DocumentKind[] = ["job_description", "resume", "question_list", "other"];
+  const docs = [...session.documentRefs].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
+
+  let remaining = GRADING_DOCS_MAX_CHARS;
+  const parts: string[] = [];
+  for (const doc of docs) {
+    if (remaining <= 0) break;
+    const text = doc.text.length > remaining ? `${doc.text.slice(0, remaining)}\n[…cut for length]` : doc.text;
+    remaining -= doc.text.length;
+    parts.push(`--- ${DOC_KIND_LABELS[doc.kind]} ---\n${text}`);
+  }
+
+  return `
+
+Documents the USER attached before the session, for the Context Fit section —
+judge how well their answers fit this specific role and background, and name
+the requirement or resume item involved in the fix. These are reference
+material, not part of the transcript: never take a quotedMoment from them.
+${parts.join("\n\n")}`;
+}
+
 function fallbackSection(): FeedbackSection {
   return {
     score: 3,
@@ -309,7 +350,7 @@ export function emptyTranscriptFeedback(session: Session): Feedback {
   };
 }
 
-function buildPrompt(session: Session, sectionKeys: SectionKey[]): string {
+function buildPrompt(session: Session, sectionKeys: SectionKey[], includeDocuments: boolean): string {
   const shape = sectionKeys
     .map(
       (k) =>
@@ -328,6 +369,7 @@ ${deliveryMetricsBlock(session)}
 ${contentMetricsBlock(session)}
 ${conversationMetricsBlock(session)}
 ${interviewStructureNote(session)}
+${includeDocuments ? documentsBlock(session) : ""}
 
 Score the USER's performance on each section below, on an integer scale of 1
 (needs significant work) to 5 (excellent). For each section, quote exactly one
@@ -347,16 +389,14 @@ ${shape}
 `.trim();
 }
 
-export async function gradeSession(session: Session): Promise<Feedback> {
-  const sectionKeys: SectionKey[] = ["structure", "delivery", "content", "engagement"];
-  if (session.documentsUsed) sectionKeys.push("contextFit");
-  if (session.mode === "debate") sectionKeys.push("argumentation");
-
-  let sections: FeedbackSections | null = null;
-  let gradingFailed = false;
-
+/**
+ * One pass through the provider chain. Returns null when no provider gave a
+ * usable answer (every call failed, or the response didn't parse/validate).
+ */
+async function attemptGrading(session: Session, sectionKeys: SectionKey[], includeDocuments: boolean): Promise<FeedbackSections | null> {
+  let raw: string;
   try {
-    const raw = await chatCompletion([{ role: "user", content: buildPrompt(session, sectionKeys) }], {
+    raw = await chatCompletion([{ role: "user", content: buildPrompt(session, sectionKeys, includeDocuments) }], {
       temperature: 0,
       timeoutMs: 45000,
       label: "grading",
@@ -366,32 +406,50 @@ export async function gradeSession(session: Session): Promise<Feedback> {
       primary: GRADING_PRIMARY,
       fallbacks: GRADING_FALLBACKS,
     });
-    const parsed = parseJsonObject<Record<string, FeedbackSection>>(raw);
-    const valid =
-      parsed && sectionKeys.every((k) => parsed[k] && typeof parsed[k].score === "number");
-
-    if (parsed && valid) {
-      sections = sectionKeys.reduce((acc, k) => {
-        acc[k] = {
-          score: Math.min(5, Math.max(1, Math.round(parsed[k].score))),
-          quotedMoment: validateQuotedMoment(session, parsed[k].quotedMoment),
-          fix: parsed[k].fix || "No specific fix returned.",
-        };
-        return acc;
-      }, {} as Record<SectionKey, FeedbackSection>) as FeedbackSections;
-    } else {
-      const reason = !parsed
-        ? "response was not valid JSON"
-        : `missing/invalid sections: ${sectionKeys.filter((k) => !parsed[k] || typeof parsed[k].score !== "number").join(", ")}`;
-      console.log(`[grading] parse/validation failed for session ${session.id}: ${reason}`);
-      await logParseFailure(session.id, reason, raw);
-    }
   } catch {
-    gradingFailed = true;
+    return null;
   }
 
+  const parsed = parseJsonObject<Record<string, FeedbackSection>>(raw);
+  const valid = parsed && sectionKeys.every((k) => parsed[k] && typeof parsed[k].score === "number");
+  if (!parsed || !valid) {
+    const reason = !parsed
+      ? "response was not valid JSON"
+      : `missing/invalid sections: ${sectionKeys.filter((k) => !parsed[k] || typeof parsed[k].score !== "number").join(", ")}`;
+    console.log(`[grading] parse/validation failed for session ${session.id}: ${reason}`);
+    await logParseFailure(session.id, reason, raw);
+    return null;
+  }
+
+  return sectionKeys.reduce((acc, k) => {
+    acc[k] = {
+      score: Math.min(5, Math.max(1, Math.round(parsed[k].score))),
+      quotedMoment: validateQuotedMoment(session, parsed[k].quotedMoment),
+      fix: parsed[k].fix || "No specific fix returned.",
+    };
+    return acc;
+  }, {} as Record<SectionKey, FeedbackSection>) as FeedbackSections;
+}
+
+export async function gradeSession(session: Session): Promise<Feedback> {
+  const sectionKeys: SectionKey[] = ["structure", "delivery", "content", "engagement"];
+  if (session.documentsUsed) sectionKeys.push("contextFit");
+  if (session.mode === "debate") sectionKeys.push("argumentation");
+
+  const hasDocuments = documentsBlock(session) !== "";
+  let sections = await attemptGrading(session, sectionKeys, hasDocuments);
+  // The documents can be several times the size of the transcript — more than
+  // the fallback provider's per-minute token limit allows in one request. If
+  // the full prompt got no usable answer, grade from the transcript alone
+  // (how Context Fit was always graded before) rather than hand back
+  // placeholders.
+  if (!sections && hasDocuments) {
+    console.log(`[grading] retrying session ${session.id} without attached documents`);
+    sections = await attemptGrading(session, sectionKeys, false);
+  }
+
+  const gradingFailed = !sections;
   if (!sections) {
-    gradingFailed = true;
     sections = sectionKeys.reduce((acc, k) => {
       acc[k] = fallbackSection();
       return acc;

@@ -19,6 +19,24 @@ finished do you speak again, and even then keep it to one short, genuine reactio
 grading pass afterward, not here.
 `.trim();
 
+// The debate persona used to ask for counterarguments "grounded in evidence",
+// and with nothing to look anything up in, the model supplied the evidence
+// itself: across the real debates on record, 16 of 34 opponent turns cited a
+// percentage or a named report (e.g. "the Department of Labor reported that
+// H-1B visa holders filled 61% of all STEM positions") — fabricated, stated
+// as fact, and impossible for the user to rebut honestly.
+const NO_INVENTED_EVIDENCE = `
+You cannot look anything up, so never state a specific statistic, percentage,
+dollar figure, date, study, report, or named source as fact — an invented
+number is worse than no number. The same goes for named programs, laws,
+organisations, and events: only mention one you are certain is real and widely
+known. Argue from logic, principles, incentives,
+trade-offs, and commonly known facts instead. If a figure would matter, say you
+don't have one and press the reasoning, or ask them what their evidence is. If
+they cite a figure, you may question where it comes from or what it actually
+shows, but don't counter it with a figure of your own.
+`.trim();
+
 const DOC_SEPARATOR = "\n\n---\n\n";
 
 function buildContextBlocks(documentRefs: DocumentRef[]): string {
@@ -87,9 +105,11 @@ function buildDebatePersona(topic: string, documentRefs: DocumentRef[]): string 
 You are their debate opponent. Their position: "${topic}"
 
 ${context ? `${context}\n\n` : ""}You will argue the OPPOSING side of this position, for the whole
-conversation. Make real counterarguments grounded in evidence and reasoning, not
-strawmen — engage with what they actually said, not a weaker version of it. Stay
+conversation. Make real counterarguments grounded in reasoning, not strawmen —
+engage with what they actually said, not a weaker version of it. Stay
 respectful but firm; press on weak points and ask them to defend specific claims.
+
+${NO_INVENTED_EVIDENCE}
 Vary your responses like a real debater would: sometimes concede a fair point
 before countering, sometimes challenge directly. Keep your own turns brief (1-4
 sentences) — you are testing their argument, not delivering a lecture.

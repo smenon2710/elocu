@@ -1902,3 +1902,37 @@ preference moved from `lib/useSpeech.ts` into a shared `lib/useVoiceSettings.ts`
 is unchanged (§39). The in-session picker stayed at first as an override and was then removed at
 the owner's request (`app/components/VoicePicker.tsx` deleted) — voice is set before a session, not
 during it.
+
+---
+
+## 53. An opponent that doesn't invent evidence, and Context Fit graded against the documents
+
+Two findings from a full-product pass over the code and the 16 production sessions (2026-10-09).
+
+**The debate opponent was fabricating statistics.** The persona asked for counterarguments "grounded
+in evidence and reasoning", and the model — with nothing to look anything up in — supplied the
+evidence itself: 16 of 34 opponent turns across the real debates cited a percentage or a named
+report, e.g. "the Department of Labor reported that H‑1B visa holders filled 61% of all STEM
+positions". The owner called it out mid-debate ("you are just making up facts"), and the grader
+then repeated the figure back as something to cite. `lib/persona.ts` now tells the opponent it can't
+look anything up: no specific statistics, dates, studies or named sources as fact, and no named
+programs, laws or organisations unless certainly real; argue from logic and trade-offs, question the
+user's figures rather than countering with its own. Replayed against the user turns of three real
+debates on Groq: 0 invented figures in 23 opponent turns (the only numbers were the user's own,
+quoted back). A first, narrower wording still produced one invented named programme, which is why
+the rule covers names too. It still makes unsourced general claims ("many organizations report…")
+— a model with no sources can't be made a fact-checker by prompt alone.
+
+**Context Fit was graded blind.** The section is described as "alignment with the provided job
+description/resume", but the grading prompt contained only the transcript — the grader had never
+seen either document. `lib/grading.ts` now appends the attached documents (job description and
+resume first, 40,000 characters in total) for sessions that have them. On the two real interview
+sessions the fixes now name actual resume items and role requirements instead of generic "tie it to
+the role" advice. The documents can be several times the transcript — one real session's prompt was
+~21k tokens, over the Groq fallback's 8,000-tokens-a-minute limit (it answers 413) — so if the full
+prompt gets no usable answer, grading runs once more from the transcript alone, as it always did
+before, rather than returning placeholders. Verified by removing the OpenRouter key: 413 on Groq
+with documents, then a normal grade without them.
+
+Also noticed, not changed: debate replies often run well past the persona's "1–4 sentences" and
+sometimes use Markdown headings, which the browser voice reads aloud.
